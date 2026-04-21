@@ -7,3 +7,27 @@
 body {
   font-family: var(--font-geist);
 }
+
+@keyframes trophy-enter {
+  0%   { opacity: 0; transform: translateY(-16px) scale(0.9); }
+  60%  { transform: translateY(3px) scale(1.02); }
+  100% { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@keyframes trophy-exit {
+  0%   { opacity: 1; transform: translateY(0) scale(1); }
+  100% { opacity: 0; transform: translateY(-12px) scale(0.92); }
+}
+
+@keyframes trophy-bar {
+  from { transform: scaleX(1); }
+  to   { transform: scaleX(0); }
+}
+
+@keyframes trophy-wiggle {
+  0%, 100% { transform: rotate(0deg) scale(1); }
+  20%       { transform: rotate(-12deg) scale(1.15); }
+  40%       { transform: rotate(10deg) scale(1.1); }
+  60%       { transform: rotate(-6deg) scale(1.05); }
+  80%       { transform: rotate(4deg) scale(1.02); }
+}

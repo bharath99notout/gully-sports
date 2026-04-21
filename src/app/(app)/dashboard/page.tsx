@@ -5,33 +5,45 @@ import AthleteCard from '@/components/AthleteCard';
 import AvatarUpload from '@/components/AvatarUpload';
 import FeedMatchCard from '@/components/FeedMatchCard';
 import { buildAthleteData } from '@/lib/athleteData';
+import TrophyBanner, { Achievement } from '@/components/TrophyBanner';
 
 export default async function DashboardPage() {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
 
-  const [{ data: profile }, { data: myStats }, { data: rawFeed }, { data: liveMatches }] = await Promise.all([
+  // Fetch profile + stats first
+  const [{ data: profile }, { data: myStats }] = await Promise.all([
     supabase.from('profiles').select('id, name, avatar_url, created_at').eq('id', user!.id).single(),
-
     supabase
       .from('player_match_stats')
       .select('sport, runs_scored, wickets_taken, catches_taken, goals_scored, match_id, matches(winner_team_id, team_a_id, team_b_id)')
       .eq('player_id', user!.id),
+  ]);
 
-    supabase
-      .from('matches')
-      .select(`id, sport, status, team_a_name, team_b_name, winner_team_id, team_a_id, team_b_id, played_at,
-        match_scores(team_name, runs, wickets, overs_faced, goals, sets),
-        player_match_stats(player_id, runs_scored, wickets_taken, catches_taken, goals_scored, profiles(id, name))`)
-      .neq('status', 'upcoming')
-      .order('played_at', { ascending: false })
-      .limit(15),
+  // Only fetch matches the user actually played in
+  const myMatchIds = [...new Set((myStats ?? []).map(s => s.match_id))];
 
-    supabase
-      .from('matches')
-      .select('id, sport, team_a_name, team_b_name, match_scores(team_name, runs, wickets, goals)')
-      .eq('status', 'live')
-      .limit(5),
+  const [{ data: rawFeed }, { data: liveMatches }] = await Promise.all([
+    myMatchIds.length > 0
+      ? supabase
+          .from('matches')
+          .select(`id, sport, status, team_a_name, team_b_name, winner_team_id, team_a_id, team_b_id, played_at,
+            match_scores(team_name, runs, wickets, overs_faced, goals, sets),
+            player_match_stats(player_id, runs_scored, wickets_taken, catches_taken, goals_scored, profiles(id, name))`)
+          .in('id', myMatchIds)
+          .neq('status', 'upcoming')
+          .order('played_at', { ascending: false })
+          .limit(15)
+      : Promise.resolve({ data: [] }),
+
+    myMatchIds.length > 0
+      ? supabase
+          .from('matches')
+          .select('id, sport, team_a_name, team_b_name, match_scores(team_name, runs, wickets, goals)')
+          .in('id', myMatchIds)
+          .eq('status', 'live')
+          .limit(5)
+      : Promise.resolve({ data: [] }),
   ]);
 
   const athleteData = buildAthleteData(
@@ -52,10 +64,58 @@ export default async function DashboardPage() {
     })),
   }));
 
+  const firstName = profile?.name?.trim().split(' ')[0] || 'Player';
+
+  // Compute per-match achievements for trophy banners
+  const achievements: Achievement[] = [];
+  const impactScore = (p: { runs_scored: number; wickets_taken: number; catches_taken: number }) =>
+    (p.runs_scored ?? 0) + (p.wickets_taken ?? 0) * 20 + (p.catches_taken ?? 0) * 10;
+
+  for (const stat of myStats ?? []) {
+    const mid = stat.match_id;
+    if ((stat.runs_scored ?? 0) >= 100)
+      achievements.push({ id: `century_${mid}`, emoji: '💯', title: 'Century!', subtitle: `${stat.runs_scored} runs`, color: 'gold' });
+    else if ((stat.runs_scored ?? 0) >= 50)
+      achievements.push({ id: `fifty_${mid}`, emoji: '⚡', title: 'Half-Century!', subtitle: `${stat.runs_scored} runs`, color: 'emerald' });
+
+    if ((stat.wickets_taken ?? 0) >= 10)
+      achievements.push({ id: `10wkt_${mid}`, emoji: '🏆', title: 'Bowling Legend!', subtitle: `${stat.wickets_taken} wickets`, color: 'gold' });
+    else if ((stat.wickets_taken ?? 0) >= 5)
+      achievements.push({ id: `5wkt_${mid}`, emoji: '🔥', title: '5-Wicket Haul!', subtitle: `${stat.wickets_taken} wickets`, color: 'red' });
+    else if ((stat.wickets_taken ?? 0) >= 3)
+      achievements.push({ id: `3wkt_${mid}`, emoji: '🎯', title: 'Hat-Trick Hero!', subtitle: `${stat.wickets_taken} wickets`, color: 'blue' });
+
+    if ((stat.catches_taken ?? 0) >= 3)
+      achievements.push({ id: `catches_${mid}`, emoji: '🧤', title: 'Catch Master!', subtitle: `${stat.catches_taken} catches`, color: 'emerald' });
+
+    if ((stat.goals_scored ?? 0) >= 5)
+      achievements.push({ id: `goals_${mid}`, emoji: '⚽', title: 'Goal Fest!', subtitle: `${stat.goals_scored} goals`, color: 'blue' });
+  }
+
+  // MVP: highest impact player in each completed match
+  for (const match of feedMatches) {
+    if (match.status !== 'completed') continue;
+    const perfs: { player_id: string; runs_scored: number; wickets_taken: number; catches_taken: number }[] =
+      match.player_performances ?? [];
+    if (perfs.length === 0) continue;
+    const sorted = [...perfs].sort((a, b) => impactScore(b) - impactScore(a));
+    if (sorted[0]?.player_id === user!.id && impactScore(sorted[0]) > 0)
+      achievements.push({ id: `mvp_${match.id}`, emoji: '🥇', title: 'Match MVP!', subtitle: `${match.team_a_name} vs ${match.team_b_name}`, color: 'gold' });
+  }
+
   return (
     <div className="max-w-2xl mx-auto flex flex-col gap-6">
 
-      {/* Your athlete card — the hero */}
+      {/* Greeting */}
+      <div>
+        <h1 className="text-2xl font-bold text-white">Hey, {firstName} 👋</h1>
+        <p className="text-sm text-gray-500 mt-0.5">Your player profile</p>
+      </div>
+
+      {/* Trophy notifications */}
+      {achievements.length > 0 && <TrophyBanner achievements={achievements} />}
+
+      {/* Athlete card hero */}
       <AthleteCard
         athlete={athleteData}
         isOwn
@@ -76,7 +136,7 @@ export default async function DashboardPage() {
         ))}
       </div>
 
-      {/* Live now */}
+      {/* Live now — only user's live matches */}
       {liveMatches && liveMatches.length > 0 && (
         <div>
           <div className="flex items-center gap-2 mb-3">
@@ -105,7 +165,7 @@ export default async function DashboardPage() {
         </div>
       )}
 
-      {/* Activity feed */}
+      {/* Recent matches — only user's matches */}
       <div>
         <div className="flex items-center justify-between mb-3">
           <h2 className="text-sm font-semibold text-white">Recent Matches</h2>

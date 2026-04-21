@@ -2,7 +2,7 @@ import Link from 'next/link';
 import CaliberBar from './CaliberBar';
 import {
   calcCaliber, getPlayerTagline, getOverallLevel,
-  getCaliberLabel, getCaliberColor,
+  getCaliberColor, getCaliberTierLabel, CALIBER_TIERS,
   SportKey, SportStat,
 } from '@/lib/caliber';
 
@@ -13,6 +13,7 @@ export interface AthleteData {
   joinedYear: number;
   sportStats: Record<SportKey, SportStat>;
 }
+
 
 const sportMeta: { key: SportKey; emoji: string; label: string }[] = [
   { key: 'cricket', emoji: '🏏', label: 'Cricket' },
@@ -54,7 +55,8 @@ export default function AthleteCard({ athlete, compact = false, isOwn = false, e
   const tagline = getPlayerTagline(sportStats);
   const overallScore = getOverallLevel(sportStats);
   const { text: overallColor } = getCaliberColor(overallScore);
-  const overallLabel = getCaliberLabel(overallScore);
+  const activeSportKeys = (sportMeta.filter(s => sportStats[s.key].matches > 0).map(s => s.key) as SportKey[]);
+  const overallLabel = getCaliberTierLabel(overallScore, activeSportKeys);
 
   const totalMatches = Object.values(sportStats).reduce((a, s) => a + s.matches, 0);
   const totalWins = Object.values(sportStats).reduce((a, s) => a + s.wins, 0);
@@ -62,15 +64,28 @@ export default function AthleteCard({ athlete, compact = false, isOwn = false, e
 
   return (
     <div className="bg-gray-900 border border-gray-800 rounded-2xl overflow-hidden">
-      {/* Header strip */}
-      <div className="h-16 bg-gradient-to-r from-gray-800 via-gray-900 to-gray-800 relative">
+      {/* Header strip — score badge lives here so overflow-hidden never clips it */}
+      <div className="h-20 bg-gradient-to-r from-gray-800 via-gray-900 to-gray-800 relative">
         <div className="absolute inset-0 opacity-20"
           style={{ backgroundImage: 'radial-gradient(circle at 30% 50%, #10b981 0%, transparent 60%), radial-gradient(circle at 70% 50%, #0ea5e9 0%, transparent 60%)' }} />
+        {overallScore > 0 ? (
+          <div className="absolute top-3 right-4 text-right">
+            <div className={`text-3xl font-black tabular-nums leading-none ${overallColor}`}
+              style={{ textShadow: '0 0 18px currentColor' }}>
+              {overallScore}
+            </div>
+            <div className={`text-xs font-semibold mt-1 leading-tight ${overallColor}`}>
+              {overallLabel}
+            </div>
+          </div>
+        ) : (
+          <div className="absolute top-4 right-4 text-xs text-gray-700 font-medium">No rating yet</div>
+        )}
       </div>
 
       <div className={compact ? 'px-4 pb-4' : 'px-5 pb-5'}>
-        {/* Avatar row */}
-        <div className="flex items-end justify-between -mt-10 mb-4">
+        {/* Avatar row — no badge here, freed from clipping risk */}
+        <div className="flex items-end -mt-10 mb-4">
           <div className="relative">
             {avatarUrl ? (
               <img src={avatarUrl} alt={name}
@@ -82,18 +97,6 @@ export default function AthleteCard({ athlete, compact = false, isOwn = false, e
             )}
             {isOwn && editSlot && (
               <div className="absolute -bottom-1 -right-1">{editSlot}</div>
-            )}
-          </div>
-
-          {/* Overall level badge */}
-          <div className="text-right mb-1">
-            {overallScore > 0 ? (
-              <>
-                <div className={`text-2xl font-black tabular-nums ${overallColor}`}>{overallScore}</div>
-                <div className={`text-xs font-semibold ${overallColor}`}>{overallLabel}</div>
-              </>
-            ) : (
-              <div className="text-xs text-gray-700 font-medium">No rating yet</div>
             )}
           </div>
         </div>
@@ -145,6 +148,51 @@ export default function AthleteCard({ athlete, compact = false, isOwn = false, e
               </span>
             ))}
           </div>
+        )}
+
+        {/* Caliber levels ladder */}
+        {!compact && (
+          <details className="mt-4 group">
+            <summary className="list-none flex items-center justify-between cursor-pointer select-none">
+              <span className="text-xs text-gray-600 hover:text-gray-400 transition-colors">Caliber levels</span>
+              <span className="text-xs text-gray-700 group-open:hidden">▾ show</span>
+              <span className="text-xs text-gray-700 hidden group-open:inline">▴ hide</span>
+            </summary>
+            <div className="mt-2 flex flex-col gap-1.5">
+              {CALIBER_TIERS.map(tier => {
+                const active = overallScore === 0 ? tier.min === 0 : overallScore >= tier.min && overallScore <= tier.max;
+                const { text: tierColor } = getCaliberColor(tier.min === 0 ? 0 : tier.min);
+                return (
+                  <div key={tier.label}
+                    className={`rounded-xl px-3 py-2 border flex items-center gap-3 transition-colors ${
+                      active ? 'border-gray-600 bg-gray-800' : 'border-gray-800/60 bg-gray-900/30'
+                    }`}>
+                    {/* Score range */}
+                    <span className={`text-xs tabular-nums w-12 shrink-0 font-mono ${active ? 'text-gray-300' : 'text-gray-700'}`}>
+                      {tier.range}
+                    </span>
+                    {/* Sport-specific names */}
+                    <div className="flex-1 min-w-0">
+                      {activeSportKeys.length === 0 ? (
+                        <span className={`text-xs font-semibold ${active ? tierColor : 'text-gray-600'}`}>
+                          {tier.sportNames.cricket}
+                        </span>
+                      ) : (
+                        <div className="flex flex-wrap gap-x-2 gap-y-0.5">
+                          {activeSportKeys.map(sk => (
+                            <span key={sk} className={`text-xs font-semibold ${active ? tierColor : 'text-gray-600'}`}>
+                              {tier.sportEmojis[sk]} {tier.sportNames[sk]}
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                    {active && <span className={`text-xs font-bold shrink-0 ${tierColor}`}>← you</span>}
+                  </div>
+                );
+              })}
+            </div>
+          </details>
         )}
       </div>
     </div>

@@ -24,16 +24,36 @@ export default async function MatchesPage({
 }) {
   const { sport, status } = await searchParams;
   const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
 
-  let query = supabase
-    .from('matches')
-    .select('*, match_scores(*)')
-    .order('played_at', { ascending: false });
+  // Get all match IDs where user is a player, added to match, or created the match
+  const [{ data: statsMatches }, { data: playerMatches }, { data: createdMatches }] = await Promise.all([
+    supabase.from('player_match_stats').select('match_id').eq('player_id', user!.id),
+    supabase.from('match_players').select('match_id').eq('player_id', user!.id),
+    supabase.from('matches').select('id').eq('created_by', user!.id),
+  ]);
 
-  if (sport) query = query.eq('sport', sport);
-  if (status) query = query.eq('status', status);
+  const myMatchIds = [...new Set([
+    ...(statsMatches ?? []).map((s: { match_id: string }) => s.match_id),
+    ...(playerMatches ?? []).map((p: { match_id: string }) => p.match_id),
+    ...(createdMatches ?? []).map((m: { id: string }) => m.id),
+  ])];
 
-  const { data: matches } = await query;
+  let matches: Match[] = [];
+
+  if (myMatchIds.length > 0) {
+    let query = supabase
+      .from('matches')
+      .select('*, match_scores(*)')
+      .in('id', myMatchIds)
+      .order('played_at', { ascending: false });
+
+    if (sport) query = query.eq('sport', sport);
+    if (status) query = query.eq('status', status);
+
+    const { data } = await query;
+    matches = (data ?? []) as Match[];
+  }
 
   const sports: { value: SportType; emoji: string }[] = [
     { value: 'cricket', emoji: '🏏' },
@@ -44,7 +64,7 @@ export default async function MatchesPage({
   return (
     <div className="flex flex-col gap-6">
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold text-white">Matches</h1>
+        <h1 className="text-2xl font-bold text-white">My Matches</h1>
         <Link
           href="/matches/new"
           className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors"
@@ -83,7 +103,7 @@ export default async function MatchesPage({
       </div>
 
       {/* Match list */}
-      {matches && matches.length > 0 ? (
+      {matches.length > 0 ? (
         <div className="flex flex-col gap-2">
           {matches.map((match: Match) => (
             <Link key={match.id} href={`/matches/${match.id}`}>
@@ -111,8 +131,9 @@ export default async function MatchesPage({
       ) : (
         <Card padding="lg" className="text-center py-12">
           <Calendar size={32} className="text-gray-700 mx-auto mb-3" />
-          <p className="text-gray-400 font-medium">No matches found</p>
-          <Link href="/matches/new" className="text-emerald-400 text-sm hover:underline mt-2 inline-block">
+          <p className="text-gray-400 font-medium">No matches yet</p>
+          <p className="text-gray-600 text-sm mt-1">Matches you create or play in will appear here</p>
+          <Link href="/matches/new" className="text-emerald-400 text-sm hover:underline mt-3 inline-block">
             Create a match →
           </Link>
         </Card>

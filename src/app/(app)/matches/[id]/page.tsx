@@ -106,12 +106,13 @@ export default async function MatchDetailPage({ params }: Props) {
         <BadmintonScorer match={match as Match} scoreA={scoreA} scoreB={scoreB} canEdit={canEdit} />
       )}
 
-      {/* Winner */}
-      {match.status === 'completed' && match.winner_team_id && (
+      {/* Winner — use winner_team_name (works for ad-hoc matches too) */}
+      {match.status === 'completed' && (match.winner_team_name || match.winner_team_id) && (
         <div className="bg-emerald-900/20 border border-emerald-800 rounded-xl p-4 text-center">
           <p className="text-sm text-emerald-400 font-medium">🏆 Winner</p>
           <p className="text-xl font-bold text-white mt-1">
-            {match.winner_team_id === match.team_a_id ? match.team_a_name : match.team_b_name}
+            {match.winner_team_name
+              ?? (match.winner_team_id === match.team_a_id ? match.team_a_name : match.team_b_name)}
           </p>
         </div>
       )}

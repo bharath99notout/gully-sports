@@ -35,6 +35,7 @@ export interface Match {
   team_a_name: string;
   team_b_name: string;
   winner_team_id?: string;
+  winner_team_name?: string | null;
   created_by: string;
   played_at: string;
   created_at: string;
@@ -46,6 +47,7 @@ export interface Match {
   striker_id?: string | null;
   non_striker_id?: string | null;
   bowler_id?: string | null;
+  current_innings?: number | null;
 }
 
 export interface MatchScore {

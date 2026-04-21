@@ -36,7 +36,8 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(new URL('/auth/login', request.url));
   }
 
-  if (user && isAuthPage) {
+  // Allow /auth/signup even when logged in (used for name setup after OTP)
+  if (user && isAuthPage && request.nextUrl.pathname !== '/auth/signup') {
     return NextResponse.redirect(new URL('/dashboard', request.url));
   }
 
