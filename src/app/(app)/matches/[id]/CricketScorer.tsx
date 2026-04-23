@@ -34,6 +34,11 @@ function impactScore(s: CricketPlayerStat): number {
   return s.runs_scored + 20 * s.wickets_taken + 10 * s.catches_taken;
 }
 
+// Display helper: prefix numeric-only team names so they don't look like scores
+function teamLabel(name: string): string {
+  return /^\d+$/.test(name.trim()) ? `Team ${name.trim()}` : name;
+}
+
 export default function CricketScorer({
   match,
   scoreA: initA,
@@ -71,6 +76,11 @@ export default function CricketScorer({
   const [searchRes, setSearchRes] = useState<{ id: string; name: string; phone?: string | null }[]>([]);
   const [busy, setBusy] = useState(false);
 
+  // "Add new player" inline form
+  const [newPlayerOpen, setNewPlayerOpen] = useState(false);
+  const [newPlayerName, setNewPlayerName] = useState('');
+  const [newPlayerPhone, setNewPlayerPhone] = useState('');
+
   // ── helpers ──────────────────────────────────────────────────────────────
 
   const battingScore = battingTeam === match.team_a_name ? scoreA : scoreB;
@@ -102,9 +112,16 @@ export default function CricketScorer({
   async function upsertStat(pid: string, delta: Partial<CricketPlayerStat>) {
     const cur = getStats(pid);
     const next: CricketPlayerStat = {
-      runs_scored: cur.runs_scored + (delta.runs_scored ?? 0),
+      runs_scored:   cur.runs_scored   + (delta.runs_scored   ?? 0),
       wickets_taken: cur.wickets_taken + (delta.wickets_taken ?? 0),
       catches_taken: cur.catches_taken + (delta.catches_taken ?? 0),
+      balls_faced:   (cur.balls_faced   ?? 0) + (delta.balls_faced   ?? 0),
+      fours:         (cur.fours         ?? 0) + (delta.fours         ?? 0),
+      sixes:         (cur.sixes         ?? 0) + (delta.sixes         ?? 0),
+      balls_bowled:  (cur.balls_bowled  ?? 0) + (delta.balls_bowled  ?? 0),
+      runs_conceded: (cur.runs_conceded ?? 0) + (delta.runs_conceded ?? 0),
+      is_out:        delta.is_out    ?? cur.is_out    ?? false,
+      dismissal:     delta.dismissal ?? cur.dismissal ?? null,
     };
     setStats(p => ({ ...p, [pid]: next }));
     await supabase.from('player_match_stats').upsert(
@@ -180,7 +197,16 @@ export default function CricketScorer({
     await supabase.from('match_scores').update({ runs: newRuns }).eq('id', battingScore.id);
     patchScore(battingTeam, { runs: newRuns });
 
-    if (!isExtra && strikerId) await upsertStat(strikerId, { runs_scored: runs });
+    if (!isExtra && strikerId) await upsertStat(strikerId, {
+      runs_scored: runs,
+      balls_faced: 1,
+      fours: runs === 4 ? 1 : 0,
+      sixes: runs === 6 ? 1 : 0,
+    });
+    if (!isExtra && bowlerId) await upsertStat(bowlerId, {
+      balls_bowled: 1,
+      runs_conceded: runs,
+    });
     if (!isExtra) await incrementBall();
 
     // Swap on odd runs (within over)
@@ -203,8 +229,27 @@ export default function CricketScorer({
     await supabase.from('match_scores').update({ wickets: newWickets }).eq('id', battingScore.id);
     patchScore(battingTeam, { wickets: newWickets });
 
-    if (bowlerId && wicketType !== 'Run Out') await upsertStat(bowlerId, { wickets_taken: 1 });
+    // Bowler: credit wicket (unless run out) + delivery ball
+    if (bowlerId) await upsertStat(bowlerId, {
+      balls_bowled: 1,
+      wickets_taken: wicketType === 'Run Out' ? 0 : 1,
+    });
     if (wicketType === 'Caught' && catcherId) await upsertStat(catcherId, { catches_taken: 1 });
+
+    // Record dismissal on the dismissed batter (IPL-style string)
+    if (dismissedId) {
+      const bowlerName  = players.find(p => p.player_id === bowlerId)?.name ?? '?';
+      const catcherName = players.find(p => p.player_id === catcherId)?.name ?? '?';
+      const dismissal =
+        wicketType === 'Bowled'     ? `b ${bowlerName}` :
+        wicketType === 'LBW'        ? `lbw b ${bowlerName}` :
+        wicketType === 'Caught'     ? `c ${catcherName} b ${bowlerName}` :
+        wicketType === 'Run Out'    ? `run out` :
+        wicketType === 'Stumped'    ? `st b ${bowlerName}` :
+        wicketType === 'Hit Wicket' ? `hit wkt b ${bowlerName}` :
+        'out';
+      await upsertStat(dismissedId, { is_out: true, dismissal });
+    }
 
     const newStriker = dismissedId === strikerId ? null : strikerId;
     const newNonStriker = dismissedId === nonStrikerId ? null : nonStrikerId;
@@ -275,6 +320,51 @@ export default function CricketScorer({
     setSearchQ(''); setSearchRes([]); setAddTeam(null);
   }
 
+  async function createAndAddPlayer(name: string, phone: string) {
+    const cleanName = name.trim();
+    const cleanPhone = phone.replace(/\D/g, '').slice(-10);
+    if (!cleanName) { alert('Enter a name'); return; }
+    if (cleanPhone.length !== 10) { alert('Phone must be 10 digits'); return; }
+
+    setBusy(true);
+    try {
+      // 1. If a profile with this phone already exists, just add them directly.
+      const { data: existing } = await supabase.from('profiles')
+        .select('id, name').eq('phone', cleanPhone).maybeSingle();
+      if (existing) {
+        await addPlayer({ id: existing.id, name: existing.name || cleanName, phone: cleanPhone });
+        return;
+      }
+
+      // 2. Create a new auth user WITHOUT touching the current session.
+      //    persistSession:false ensures tokens aren't written to localStorage.
+      const { createBrowserClient } = await import('@supabase/ssr');
+      const tempClient = createBrowserClient(
+        process.env.NEXT_PUBLIC_SUPABASE_URL!,
+        process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+        { auth: { persistSession: false, autoRefreshToken: false } }
+      );
+
+      const email = `${cleanPhone}@live.com`;
+      const password = cleanPhone.slice(-6);
+      const { data: signup, error } = await tempClient.auth.signUp({
+        email, password,
+        options: { data: { name: cleanName } },
+      });
+
+      if (error || !signup.user) {
+        alert('Could not create player: ' + (error?.message ?? 'unknown error'));
+        return;
+      }
+
+      // 3. The profile row is auto-created by the DB trigger with name + phone.
+      //    Just add them to the match.
+      await addPlayer({ id: signup.user.id, name: cleanName, phone: cleanPhone });
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function removePlayer(mp: MatchPlayer) {
     await supabase.from('match_players').delete().eq('match_id', match.id).eq('player_id', mp.player_id);
     setPlayers(p => p.filter(x => x.player_id !== mp.player_id));
@@ -299,7 +389,7 @@ export default function CricketScorer({
         ] as { score: MatchScore | null; team: string }[]).map(({ score, team }) => (
           <Card key={team} padding="md" className={battingTeam === team ? 'border-emerald-700' : ''}>
             <div className="flex items-center justify-between mb-1">
-              <p className="text-xs text-gray-400 truncate">{team}</p>
+              <p className="text-xs text-gray-400 truncate">{teamLabel(team)}</p>
               {battingTeam === team
                 ? <span className="text-xs text-emerald-400 font-semibold">{innings === 1 ? '1st INN' : '2nd INN'}</span>
                 : battingTeam && <span className="text-xs text-blue-400">BOWLING</span>}
@@ -482,7 +572,7 @@ export default function CricketScorer({
               {[match.team_a_name, match.team_b_name].map(team => (
                 <div key={team}>
                   <div className="flex items-center justify-between mb-2">
-                    <p className="text-xs font-medium text-gray-400 truncate">{team}</p>
+                    <p className="text-xs font-medium text-gray-400 truncate">{teamLabel(team)}</p>
                     <button onClick={() => setAddTeam(team)}
                       className="flex items-center gap-0.5 text-xs text-emerald-400 hover:underline">
                       <Plus size={11} /> Add
@@ -532,7 +622,57 @@ export default function CricketScorer({
                     ))}
                   </div>
                 )}
-                <button onClick={() => { setAddTeam(null); setSearchQ(''); setSearchRes([]); }}
+
+                {/* "Add new player" — appears when search has no matches, or always via button */}
+                {searchQ.trim().length >= 2 && searchRes.length === 0 && !newPlayerOpen && (
+                  <button onClick={() => { setNewPlayerName(searchQ.trim()); setNewPlayerPhone(''); setNewPlayerOpen(true); }}
+                    className="mt-2 w-full text-left px-3 py-2.5 bg-emerald-950/40 hover:bg-emerald-950/60 border border-emerald-800/60 rounded-lg flex items-center gap-2 transition-colors">
+                    <Plus size={14} className="text-emerald-400 shrink-0" />
+                    <div className="min-w-0">
+                      <p className="text-sm text-emerald-300 font-semibold truncate">
+                        Add &ldquo;{searchQ.trim()}&rdquo; as a new player
+                      </p>
+                      <p className="text-[11px] text-gray-500 mt-0.5">
+                        Creates a profile so stats count toward their career
+                      </p>
+                    </div>
+                  </button>
+                )}
+
+                {/* New player form */}
+                {newPlayerOpen && (
+                  <div className="mt-2 p-3 bg-gray-800/40 border border-emerald-800/60 rounded-lg flex flex-col gap-2">
+                    <p className="text-xs font-semibold text-emerald-300 mb-0.5">Create new player</p>
+                    <input type="text" placeholder="Player name" value={newPlayerName}
+                      onChange={e => setNewPlayerName(e.target.value)}
+                      className="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-1.5 text-sm text-white placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                    />
+                    <input type="tel" inputMode="numeric" placeholder="10-digit mobile number" value={newPlayerPhone}
+                      onChange={e => setNewPlayerPhone(e.target.value.replace(/\D/g, '').slice(0, 10))}
+                      className="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-1.5 text-sm text-white placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                    />
+                    <p className="text-[10px] text-gray-500 leading-snug">
+                      Creates a real account using this number. Player can log in later with OTP = last 4 digits.
+                    </p>
+                    <div className="flex gap-2 mt-1">
+                      <button onClick={() => { setNewPlayerOpen(false); setNewPlayerName(''); setNewPlayerPhone(''); }}
+                        className="flex-1 py-1.5 rounded-lg bg-gray-800 border border-gray-700 text-xs text-gray-400 hover:text-white">
+                        Cancel
+                      </button>
+                      <button
+                        onClick={async () => {
+                          await createAndAddPlayer(newPlayerName, newPlayerPhone);
+                          setNewPlayerOpen(false); setNewPlayerName(''); setNewPlayerPhone('');
+                        }}
+                        disabled={busy || !newPlayerName.trim() || newPlayerPhone.length !== 10}
+                        className="flex-1 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-xs font-bold text-white disabled:opacity-40 disabled:hover:bg-emerald-600">
+                        {busy ? 'Creating…' : 'Create & Add'}
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                <button onClick={() => { setAddTeam(null); setSearchQ(''); setSearchRes([]); setNewPlayerOpen(false); }}
                   className="mt-1.5 text-xs text-gray-600 hover:text-gray-400">Cancel</button>
               </div>
             )}
@@ -613,7 +753,7 @@ export default function CricketScorer({
                       ? 'border-emerald-500 bg-emerald-950/40'
                       : 'border-gray-700 bg-gray-800/50 hover:border-gray-600'
                   }`}>
-                  <p className="text-xs text-gray-400 mb-1 truncate">{team}</p>
+                  <p className="text-xs text-gray-400 mb-1 truncate">{teamLabel(team)}</p>
                   <p className="text-2xl font-bold text-white">{score?.runs ?? 0}/{score?.wickets ?? 0}</p>
                   <p className="text-xs text-gray-500">{score?.overs_faced ?? 0} ov</p>
                   {winnerSide === side && (
@@ -748,7 +888,7 @@ function MVPLeaderboard({ players, getStats }: {
   );
 }
 
-// ── Post-match full summary ───────────────────────────────────────────────────
+// ── Post-match full summary (IPL-style scorecard) ────────────────────────────
 
 function PostMatchSummary({ players, stats, match, scoreA, scoreB }: {
   players: MatchPlayer[];
@@ -757,143 +897,198 @@ function PostMatchSummary({ players, stats, match, scoreA, scoreB }: {
   scoreA: MatchScore | null;
   scoreB: MatchScore | null;
 }) {
+  const [activeTab, setActiveTab] = useState<'a' | 'b'>('a');
+  return <PostMatchSummaryInner
+    players={players} stats={stats} match={match} scoreA={scoreA} scoreB={scoreB}
+    activeTab={activeTab} setActiveTab={setActiveTab}
+  />;
+}
+
+function PostMatchSummaryInner({ players, stats, match, scoreA, scoreB, activeTab, setActiveTab }: {
+  players: MatchPlayer[];
+  stats: Record<string, CricketPlayerStat>;
+  match: Match;
+  scoreA: MatchScore | null;
+  scoreB: MatchScore | null;
+  activeTab: 'a' | 'b';
+  setActiveTab: (v: 'a' | 'b') => void;
+}) {
   const teamAPlayers = players.filter(p => p.team_name === match.team_a_name);
   const teamBPlayers = players.filter(p => p.team_name === match.team_b_name);
 
-  // Winner: prefer saved winner_team_name (works for ad-hoc matches)
-  const winnerName = match.winner_team_name
-    ?? (match.winner_team_id === match.team_a_id && match.team_a_id ? match.team_a_name : null)
-    ?? (match.winner_team_id === match.team_b_id && match.team_b_id ? match.team_b_name : null);
-
-  // Win margin heuristic
   const runsA = scoreA?.runs ?? 0, runsB = scoreB?.runs ?? 0;
   const wktsA = scoreA?.wickets ?? 0, wktsB = scoreB?.wickets ?? 0;
+
+  // Winner detection
+  let winnerName: string | null = match.winner_team_name ?? null;
+  if (!winnerName && match.winner_team_id) {
+    if (match.winner_team_id === match.team_a_id) winnerName = match.team_a_name;
+    else if (match.winner_team_id === match.team_b_id) winnerName = match.team_b_name;
+  }
+  if (!winnerName && !match.winner_team_id && !match.winner_team_name && runsA !== runsB) {
+    winnerName = runsA > runsB ? match.team_a_name : match.team_b_name;
+  }
   let winMargin = '';
   if (winnerName === match.team_a_name)
-    winMargin = runsA > runsB ? `by ${runsA - runsB} runs` : `by ${Math.max(0, teamAPlayers.length - 1 - wktsA)} wickets`;
+    winMargin = runsA > runsB ? `by ${runsA - runsB} runs` : `by ${Math.max(0, teamAPlayers.length - 1 - wktsA)} wkts`;
   else if (winnerName === match.team_b_name)
-    winMargin = runsB > runsA ? `by ${runsB - runsA} runs` : `by ${Math.max(0, teamBPlayers.length - 1 - wktsB)} wickets`;
+    winMargin = runsB > runsA ? `by ${runsB - runsA} runs` : `by ${Math.max(0, teamBPlayers.length - 1 - wktsB)} wkts`;
 
-  // Batting rows helper
-  function BattingRows({ tp }: { tp: MatchPlayer[] }) {
-    if (!tp.length) return <p className="px-4 py-2 text-xs text-gray-600 italic">No players recorded</p>;
-    const sorted = [...tp].sort((a, b) => (stats[b.player_id]?.runs_scored ?? 0) - (stats[a.player_id]?.runs_scored ?? 0));
-    return (
-      <>
-        {sorted.map(p => {
-          const s = stats[p.player_id] ?? { runs_scored: 0, wickets_taken: 0, catches_taken: 0 };
-          const is100 = s.runs_scored >= 100, is50 = s.runs_scored >= 50;
-          return (
-            <div key={p.player_id} className="grid grid-cols-[1fr_auto] items-center px-4 py-2 border-b border-gray-800/30 last:border-0">
-              <div className="flex items-center gap-1.5 min-w-0">
-                <span className="text-xs text-white truncate">{p.name}</span>
-                {is100 && <span className="text-[9px] bg-yellow-900/50 text-yellow-400 px-1 rounded font-bold">💯</span>}
-                {!is100 && is50 && <span className="text-[9px] bg-emerald-900/40 text-emerald-400 px-1 rounded font-bold">50+</span>}
-              </div>
-              <span className={`text-xs tabular-nums font-bold ${is100 ? 'text-yellow-400' : is50 ? 'text-emerald-400' : s.runs_scored > 0 ? 'text-gray-200' : 'text-gray-600'}`}>
-                {s.runs_scored > 0 ? `${s.runs_scored} r` : '0 r'}
-              </span>
-            </div>
-          );
-        })}
-      </>
-    );
-  }
+  // Active tab data
+  const isA = activeTab === 'a';
+  const batPlayers = isA ? teamAPlayers : teamBPlayers;
+  const bowlTeamPlayers = isA ? teamBPlayers : teamAPlayers;
+  const score = isA ? scoreA : scoreB;
 
-  // Bowling rows helper (bowlers = opposite team's stats)
-  function BowlingRows({ tp }: { tp: MatchPlayer[] }) {
-    const bowlers = [...tp]
-      .filter(p => (stats[p.player_id]?.wickets_taken ?? 0) > 0 || (stats[p.player_id]?.catches_taken ?? 0) > 0)
-      .sort((a, b) => (stats[b.player_id]?.wickets_taken ?? 0) - (stats[a.player_id]?.wickets_taken ?? 0));
-    if (!bowlers.length) return <p className="px-4 py-2 text-xs text-gray-600 italic">No wickets taken</p>;
-    return (
-      <>
-        {bowlers.map(p => {
-          const s = stats[p.player_id] ?? { runs_scored: 0, wickets_taken: 0, catches_taken: 0 };
-          return (
-            <div key={p.player_id} className="grid grid-cols-[1fr_auto_auto] items-center px-4 py-2 border-b border-gray-800/30 last:border-0 gap-3">
-              <span className="text-xs text-white truncate">{p.name}</span>
-              <span className={`text-xs tabular-nums font-bold ${s.wickets_taken >= 3 ? 'text-red-400' : s.wickets_taken > 0 ? 'text-orange-400' : 'text-gray-600'}`}>
-                {s.wickets_taken} w
-              </span>
-              {s.catches_taken > 0 && (
-                <span className="text-xs tabular-nums text-blue-400">{s.catches_taken} c</span>
-              )}
-            </div>
-          );
-        })}
-      </>
-    );
-  }
+  // Batters = players with any batting activity. If NOTHING is recorded for a team
+  // (ad-hoc match, user just tapped run buttons without selecting strikers), fall
+  // back to showing every team player so the scorecard isn't empty.
+  const activeBatters = batPlayers.filter(p => {
+    const s = stats[p.player_id];
+    return s && (s.runs_scored > 0 || (s.balls_faced ?? 0) > 0 || s.is_out);
+  });
+  const batters = activeBatters.length > 0 ? activeBatters : batPlayers;
+  const yetToBat = activeBatters.length > 0
+    ? batPlayers.filter(p => !activeBatters.some(b => b.player_id === p.player_id))
+    : [];
 
-  // Match highlights
-  const highlights: { emoji: string; text: string; color: string }[] = [];
-  for (const p of players) {
-    const s = stats[p.player_id]; if (!s) continue;
-    if (s.runs_scored >= 100)      highlights.push({ emoji: '💯', text: `${p.name} — ${s.runs_scored} runs (Century!)`,     color: 'text-yellow-400' });
-    else if (s.runs_scored >= 50)  highlights.push({ emoji: '⚡', text: `${p.name} — ${s.runs_scored} runs (Half-Century)`, color: 'text-emerald-400' });
-    if (s.wickets_taken >= 5)      highlights.push({ emoji: '🔥', text: `${p.name} — ${s.wickets_taken} wickets (5-fer!)`,  color: 'text-red-400' });
-    else if (s.wickets_taken >= 3) highlights.push({ emoji: '🎯', text: `${p.name} — ${s.wickets_taken} wickets`,           color: 'text-orange-400' });
-    if (s.catches_taken >= 2)      highlights.push({ emoji: '🧤', text: `${p.name} — ${s.catches_taken} catches`,           color: 'text-blue-400' });
-  }
+  // Bowlers = opposite team players with any bowling activity
+  const bowlers = bowlTeamPlayers
+    .filter(p => {
+      const s = stats[p.player_id];
+      return s && ((s.balls_bowled ?? 0) > 0 || s.wickets_taken > 0 || s.catches_taken > 0);
+    })
+    .sort((a, b) => {
+      const diff = (stats[b.player_id]?.wickets_taken ?? 0) - (stats[a.player_id]?.wickets_taken ?? 0);
+      if (diff !== 0) return diff;
+      return (stats[b.player_id]?.balls_bowled ?? 0) - (stats[a.player_id]?.balls_bowled ?? 0);
+    });
 
   return (
     <div className="flex flex-col gap-3">
 
       {/* Result banner */}
       {winnerName ? (
-        <div className="bg-emerald-950/30 border border-emerald-700/50 rounded-2xl px-4 py-4 text-center">
-          <p className="text-[10px] text-gray-500 mb-1 uppercase tracking-widest">Match Result</p>
-          <p className="text-xl font-black text-white">🏆 {winnerName}</p>
-          {winMargin && <p className="text-sm text-emerald-400 font-semibold mt-0.5">Won {winMargin}</p>}
+        <div className="bg-emerald-950/30 border border-emerald-700/50 rounded-xl px-4 py-3 text-center">
+          <p className="text-base font-bold text-white">
+            🏆 <span className="text-emerald-300">{teamLabel(winnerName)}</span>
+            {winMargin && <span className="text-gray-400 font-normal"> won {winMargin}</span>}
+          </p>
         </div>
       ) : (
-        <div className="bg-gray-900 border border-gray-700 rounded-2xl px-4 py-3 text-center">
-          <p className="text-sm text-gray-400">Match ended — No result</p>
+        <div className="bg-gray-900/50 border border-gray-800 rounded-xl px-4 py-2.5 text-center">
+          <p className="text-sm text-gray-400">Match ended — no result</p>
         </div>
       )}
 
-      {/* Scorecards: batting + bowling per team */}
-      {([
-        { batting: teamAPlayers, bowling: teamBPlayers, score: scoreA, batTeam: match.team_a_name, bowlTeam: match.team_b_name },
-        { batting: teamBPlayers, bowling: teamAPlayers, score: scoreB, batTeam: match.team_b_name, bowlTeam: match.team_a_name },
-      ]).map(({ batting, bowling, score, batTeam, bowlTeam }) => (
-        <div key={batTeam} className="bg-gray-900 border border-gray-800 rounded-2xl overflow-hidden">
-          {/* Team score header */}
-          <div className="flex items-center justify-between px-4 py-3 bg-gray-800/60 border-b border-gray-700/60">
-            <span className="text-sm font-bold text-white truncate">{batTeam}</span>
-            <span className="text-sm font-bold text-white tabular-nums shrink-0">
-              {score?.runs ?? 0}/{score?.wickets ?? 0}
-              <span className="text-xs text-gray-500 font-normal ml-1">({score?.overs_faced ?? 0} ov)</span>
+      {/* Tabs */}
+      <div className="flex border-b border-gray-800">
+        {([
+          { id: 'a' as const, name: match.team_a_name, score: scoreA },
+          { id: 'b' as const, name: match.team_b_name, score: scoreB },
+        ]).map(t => (
+          <button key={t.id} onClick={() => setActiveTab(t.id)}
+            className={`flex-1 py-3 text-sm font-semibold border-b-2 -mb-px transition-colors ${
+              activeTab === t.id
+                ? 'border-white text-white'
+                : 'border-transparent text-gray-500 hover:text-gray-300'
+            }`}>
+            <span className="truncate block px-1">{teamLabel(t.name)}</span>
+            <span className="text-xs font-normal text-gray-500">
+              {t.score?.runs ?? 0}/{t.score?.wickets ?? 0} ({t.score?.overs_faced ?? 0} ov)
             </span>
-          </div>
+          </button>
+        ))}
+      </div>
 
-          {/* Batting section */}
-          <div className="px-4 py-1.5 border-b border-gray-800/40 bg-gray-800/20">
-            <span className="text-[10px] font-semibold text-emerald-600 uppercase tracking-widest">🏏 Batting</span>
-          </div>
-          <BattingRows tp={batting} />
-
-          {/* Bowling section */}
-          <div className="px-4 py-1.5 border-b border-gray-800/40 bg-gray-800/20 border-t border-gray-800/60">
-            <span className="text-[10px] font-semibold text-red-600 uppercase tracking-widest">🎳 Bowling — {bowlTeam}</span>
-          </div>
-          <BowlingRows tp={bowling} />
+      {/* Batting panel */}
+      <div className="bg-gray-900/60 border border-gray-800 rounded-xl overflow-hidden">
+        <div className="grid grid-cols-[1fr_2rem_2rem_2rem_2rem_3rem] gap-1 px-4 py-2 border-b border-gray-800 bg-gray-800/30">
+          <span className="text-[11px] text-gray-500 font-semibold uppercase">Batting</span>
+          <span className="text-[10px] text-gray-500 text-right">R</span>
+          <span className="text-[10px] text-gray-500 text-right">B</span>
+          <span className="text-[10px] text-gray-500 text-right">4s</span>
+          <span className="text-[10px] text-gray-500 text-right">6s</span>
+          <span className="text-[10px] text-gray-500 text-right">S/R</span>
         </div>
-      ))}
-
-      {/* Match highlights */}
-      {highlights.length > 0 && (
-        <div className="bg-gray-900 border border-gray-800 rounded-2xl p-4">
-          <p className="text-[10px] font-semibold text-gray-500 uppercase tracking-widest mb-3">Match Highlights</p>
-          <div className="flex flex-col gap-2.5">
-            {highlights.map((h, i) => (
-              <div key={i} className="flex items-center gap-2.5">
-                <span className="text-lg leading-none">{h.emoji}</span>
-                <span className={`text-xs font-medium ${h.color}`}>{h.text}</span>
+        {batters.length === 0 && (
+          <p className="px-4 py-3 text-xs text-gray-600 italic">No batting data recorded</p>
+        )}
+        {batters.map(p => {
+          const s = stats[p.player_id] ?? { runs_scored: 0, wickets_taken: 0, catches_taken: 0 };
+          const balls = s.balls_faced ?? 0;
+          const sr = balls > 0 ? ((s.runs_scored / balls) * 100).toFixed(1) : '–';
+          const is100 = s.runs_scored >= 100, is50 = s.runs_scored >= 50;
+          return (
+            <div key={p.player_id} className="grid grid-cols-[1fr_2rem_2rem_2rem_2rem_3rem] gap-1 items-center px-4 py-2.5 border-b border-gray-800/40 last:border-0">
+              <div className="min-w-0">
+                <div className="flex items-center gap-1.5">
+                  <span className="text-sm text-white font-medium truncate">{p.name}</span>
+                  {is100 && <span className="text-[9px] bg-yellow-900/50 text-yellow-400 px-1 rounded font-bold shrink-0">💯</span>}
+                  {!is100 && is50 && <span className="text-[9px] bg-emerald-900/40 text-emerald-400 px-1 rounded font-bold shrink-0">50+</span>}
+                </div>
+                <p className="text-[11px] text-gray-500 truncate mt-0.5">
+                  {s.is_out ? (s.dismissal ?? 'out') : 'not out'}
+                </p>
               </div>
-            ))}
+              <span className={`text-xs text-right tabular-nums font-bold ${is100 ? 'text-yellow-400' : is50 ? 'text-emerald-400' : 'text-white'}`}>
+                {s.runs_scored}
+              </span>
+              <span className="text-xs text-right tabular-nums text-gray-400">{balls || '–'}</span>
+              <span className="text-xs text-right tabular-nums text-gray-400">{s.fours || '–'}</span>
+              <span className="text-xs text-right tabular-nums text-gray-400">{s.sixes || '–'}</span>
+              <span className="text-xs text-right tabular-nums text-gray-400">{sr}</span>
+            </div>
+          );
+        })}
+
+        {/* Team total row */}
+        <div className="flex items-center justify-between px-4 py-2.5 bg-gray-800/30 border-t border-gray-800">
+          <span className="text-xs font-bold text-white uppercase tracking-wide">Total</span>
+          <span className="text-sm font-bold text-white tabular-nums">
+            {score?.runs ?? 0}/{score?.wickets ?? 0}
+            <span className="text-xs text-gray-500 font-normal ml-1.5">({score?.overs_faced ?? 0} ov)</span>
+          </span>
+        </div>
+      </div>
+
+      {/* Yet to bat */}
+      {yetToBat.length > 0 && (
+        <div className="bg-gray-900/40 border border-gray-800 rounded-xl px-4 py-3">
+          <p className="text-[11px] font-semibold text-gray-500 uppercase tracking-wide mb-1">Yet to bat</p>
+          <p className="text-sm text-gray-300">{yetToBat.map(p => p.name).join(' · ')}</p>
+        </div>
+      )}
+
+      {/* Bowling panel */}
+      {bowlers.length > 0 && (
+        <div className="bg-gray-900/60 border border-gray-800 rounded-xl overflow-hidden">
+          <div className="grid grid-cols-[1fr_2.5rem_2rem_2rem_3rem] gap-1 px-4 py-2 border-b border-gray-800 bg-gray-800/30">
+            <span className="text-[11px] text-gray-500 font-semibold uppercase">Bowling · {teamLabel(isA ? match.team_b_name : match.team_a_name)}</span>
+            <span className="text-[10px] text-gray-500 text-right">O</span>
+            <span className="text-[10px] text-gray-500 text-right">R</span>
+            <span className="text-[10px] text-gray-500 text-right">W</span>
+            <span className="text-[10px] text-gray-500 text-right">Econ</span>
           </div>
+          {bowlers.map(p => {
+            const s = stats[p.player_id] ?? { runs_scored: 0, wickets_taken: 0, catches_taken: 0 };
+            const balls = s.balls_bowled ?? 0;
+            const overs = balls > 0 ? ballsToOvers(balls) : '–';
+            const runs = s.runs_conceded ?? 0;
+            const econ = balls > 0 ? ((runs / balls) * 6).toFixed(2) : '–';
+            const wkts = s.wickets_taken;
+            return (
+              <div key={p.player_id} className="grid grid-cols-[1fr_2.5rem_2rem_2rem_3rem] gap-1 items-center px-4 py-2.5 border-b border-gray-800/40 last:border-0">
+                <span className="text-sm text-white font-medium truncate">{p.name}</span>
+                <span className="text-xs text-right tabular-nums text-gray-300">{overs}</span>
+                <span className="text-xs text-right tabular-nums text-gray-400">{runs || '–'}</span>
+                <span className={`text-xs text-right tabular-nums font-bold ${wkts >= 3 ? 'text-red-400' : wkts > 0 ? 'text-orange-400' : 'text-gray-400'}`}>
+                  {wkts}
+                </span>
+                <span className="text-xs text-right tabular-nums text-gray-400">{econ}</span>
+              </div>
+            );
+          })}
         </div>
       )}
     </div>
@@ -912,7 +1107,7 @@ function PlayerScorecard({ players, stats, teamA, teamB }: {
     <div className="grid grid-cols-2 gap-3">
       {[teamA, teamB].map(team => (
         <Card key={team} padding="sm">
-          <p className="text-xs font-semibold text-gray-400 mb-2">{team}</p>
+          <p className="text-xs font-semibold text-gray-400 mb-2">{teamLabel(team)}</p>
           {players.filter(p => p.team_name === team).map(p => {
             const s = stats[p.player_id] ?? { runs_scored: 0, wickets_taken: 0, catches_taken: 0 };
             return (

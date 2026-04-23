@@ -40,9 +40,10 @@ export default async function MatchDetailPage({ params }: Props) {
         .from('match_players')
         .select('id, match_id, player_id, team_name, profiles(name)')
         .eq('match_id', id),
+      // select * so missing columns (pre-migration 009) don't break the query
       supabase
         .from('player_match_stats')
-        .select('player_id, runs_scored, wickets_taken, catches_taken')
+        .select('*')
         .eq('match_id', id),
     ]);
 
@@ -55,12 +56,22 @@ export default async function MatchDetailPage({ params }: Props) {
       name: p.profiles?.name ?? 'Unknown',
     }));
 
-    playerStats = Object.fromEntries(
-      (ps ?? []).map((s: { player_id: string; runs_scored: number; wickets_taken: number; catches_taken: number }) => [
-        s.player_id,
-        { runs_scored: s.runs_scored, wickets_taken: s.wickets_taken, catches_taken: s.catches_taken ?? 0 },
-      ])
-    );
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    playerStats = Object.fromEntries((ps ?? []).map((s: any) => [
+      s.player_id,
+      {
+        runs_scored:   s.runs_scored,
+        wickets_taken: s.wickets_taken,
+        catches_taken: s.catches_taken ?? 0,
+        balls_faced:   s.balls_faced   ?? 0,
+        fours:         s.fours         ?? 0,
+        sixes:         s.sixes         ?? 0,
+        balls_bowled:  s.balls_bowled  ?? 0,
+        runs_conceded: s.runs_conceded ?? 0,
+        is_out:        s.is_out ?? false,
+        dismissal:     s.dismissal ?? null,
+      },
+    ]));
   }
 
   return (
@@ -79,7 +90,9 @@ export default async function MatchDetailPage({ params }: Props) {
             </span>
           </div>
           <h1 className="text-xl font-bold text-white">
-            {match.team_a_name} <span className="text-gray-500">vs</span> {match.team_b_name}
+            {/^\d+$/.test(match.team_a_name.trim()) ? `Team ${match.team_a_name}` : match.team_a_name}
+            {' '}<span className="text-gray-500">vs</span>{' '}
+            {/^\d+$/.test(match.team_b_name.trim()) ? `Team ${match.team_b_name}` : match.team_b_name}
           </h1>
           {match.sport === 'cricket' && match.cricket_overs && (
             <p className="text-sm text-gray-500 mt-0.5">{match.cricket_overs} overs</p>
@@ -111,8 +124,11 @@ export default async function MatchDetailPage({ params }: Props) {
         <div className="bg-emerald-900/20 border border-emerald-800 rounded-xl p-4 text-center">
           <p className="text-sm text-emerald-400 font-medium">🏆 Winner</p>
           <p className="text-xl font-bold text-white mt-1">
-            {match.winner_team_name
-              ?? (match.winner_team_id === match.team_a_id ? match.team_a_name : match.team_b_name)}
+            {(() => {
+              const n = match.winner_team_name
+                ?? (match.winner_team_id === match.team_a_id ? match.team_a_name : match.team_b_name);
+              return n && /^\d+$/.test(n.trim()) ? `Team ${n}` : n;
+            })()}
           </p>
         </div>
       )}

@@ -27,7 +27,7 @@ export default async function DashboardPage() {
     myMatchIds.length > 0
       ? supabase
           .from('matches')
-          .select(`id, sport, status, team_a_name, team_b_name, winner_team_id, team_a_id, team_b_id, played_at,
+          .select(`id, sport, status, team_a_name, team_b_name, winner_team_id, winner_team_name, team_a_id, team_b_id, played_at,
             match_scores(team_name, runs, wickets, overs_faced, goals, sets),
             player_match_stats(player_id, runs_scored, wickets_taken, catches_taken, goals_scored, profiles(id, name))`)
           .in('id', myMatchIds)

@@ -12,8 +12,9 @@ export interface Achievement {
   color?: 'gold' | 'emerald' | 'red' | 'blue';
 }
 
-const DISPLAY_MS = 7500;
+const DISPLAY_MS = 5000;
 const ANIM_MS    = 450;
+const MAX_VIEWS  = 1;
 
 const colorMap = {
   gold:    { border: 'border-yellow-700/60', bg: 'from-yellow-950/80 via-amber-950/60 to-yellow-950/80', bar: 'bg-yellow-600/60', text: 'text-yellow-400', confetti: ['#f59e0b', '#fbbf24', '#fde68a', '#fff8dc', '#ffffff'] },
@@ -34,7 +35,7 @@ export default function TrophyBanner({ achievements }: { achievements: Achieveme
     if (!achievements.length) return;
     let counts: Record<string, number> = {};
     try { counts = JSON.parse(localStorage.getItem('gs_ach') ?? '{}'); } catch {}
-    const fresh = achievements.filter(a => (counts[a.id] ?? 0) < 3);
+    const fresh = achievements.filter(a => (counts[a.id] ?? 0) < MAX_VIEWS);
     if (fresh.length) setQueue(fresh);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);

@@ -113,7 +113,9 @@ export default async function MatchesPage({
                     <SportBadge sport={match.sport} />
                     <div className="min-w-0">
                       <p className="text-sm font-medium text-white truncate">
-                        {match.team_a_name} vs {match.team_b_name}
+                        {/^\d+$/.test(match.team_a_name.trim()) ? `Team ${match.team_a_name}` : match.team_a_name}
+                        {' vs '}
+                        {/^\d+$/.test(match.team_b_name.trim()) ? `Team ${match.team_b_name}` : match.team_b_name}
                       </p>
                       <p className="text-xs text-gray-500 mt-0.5">
                         {new Date(match.played_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}

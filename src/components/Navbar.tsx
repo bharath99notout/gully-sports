@@ -2,16 +2,17 @@
 
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { Trophy, Users, Calendar, User, LogOut, Menu, X, Search } from 'lucide-react';
+import { Trophy, Users, Calendar, User, LogOut, Menu, X, Search, Medal } from 'lucide-react';
 import { useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
 
 const navItems = [
-  { href: '/dashboard', label: 'Home', icon: Trophy },
-  { href: '/matches', label: 'Matches', icon: Calendar },
-  { href: '/players', label: 'Players', icon: Search },
-  { href: '/teams', label: 'Teams', icon: Users },
-  { href: '/profile', label: 'Profile', icon: User },
+  { href: '/dashboard',   label: 'Home',        icon: Trophy },
+  { href: '/matches',     label: 'Matches',     icon: Calendar },
+  { href: '/leaderboard', label: 'Leaderboard', icon: Medal },
+  { href: '/players',     label: 'Players',     icon: Search },
+  { href: '/teams',       label: 'Teams',       icon: Users },
+  { href: '/profile',     label: 'Profile',     icon: User },
 ];
 
 export default function Navbar() {

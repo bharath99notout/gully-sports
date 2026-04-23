@@ -75,6 +75,13 @@ export interface CricketPlayerStat {
   runs_scored: number;
   wickets_taken: number;
   catches_taken: number;
+  balls_faced?: number;
+  fours?: number;
+  sixes?: number;
+  balls_bowled?: number;
+  runs_conceded?: number;
+  is_out?: boolean;
+  dismissal?: string | null;
 }
 
 export interface PlayerMatchStats {

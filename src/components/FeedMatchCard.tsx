@@ -28,6 +28,7 @@ interface FeedMatch {
   team_a_name: string;
   team_b_name: string;
   winner_team_id: string | null;
+  winner_team_name?: string | null;
   team_a_id: string | null;
   team_b_id: string | null;
   played_at: string;
@@ -42,6 +43,10 @@ const sportColor: Record<SportType, string> = {
   badminton: 'text-yellow-400 bg-yellow-950/60 border-yellow-900',
 };
 
+function teamLabel(name: string): string {
+  return /^\d+$/.test(name.trim()) ? `Team ${name.trim()}` : name;
+}
+
 function timeAgo(dateStr: string) {
   const diff = Date.now() - new Date(dateStr).getTime();
   const m = Math.floor(diff / 60000);
@@ -52,131 +57,165 @@ function timeAgo(dateStr: string) {
   return `${Math.floor(h / 24)}d ago`;
 }
 
-function CricketScore({ scores, teamA, teamB }: { scores: Score[]; teamA: string; teamB: string }) {
-  const sA = scores.find(s => s.team_name === teamA);
-  const sB = scores.find(s => s.team_name === teamB);
+function impactScore(p: PlayerPerf): number {
+  return (p.runs_scored ?? 0) + 20 * (p.wickets_taken ?? 0) + 10 * (p.catches_taken ?? 0) + 25 * (p.goals_scored ?? 0);
+}
+
+// ── Team row (stacked, IPL-style) ─────────────────────────────────────────────
+
+function TeamRow({ name, score, sport, isWinner, dim }: {
+  name: string;
+  score: Score | undefined;
+  sport: SportType;
+  isWinner: boolean;
+  dim: boolean;
+}) {
+  const display = teamLabel(name);
+  const nameCol = dim ? 'text-gray-500' : isWinner ? 'text-white' : 'text-gray-300';
+  const scoreCol = dim ? 'text-gray-600' : 'text-white';
+
   return (
-    <div className="flex items-center justify-between mt-3">
-      <div className="flex-1 text-center">
-        <p className="text-xs text-gray-400 truncate mb-0.5">{teamA}</p>
-        <p className="text-2xl font-bold text-white">{sA?.runs ?? 0}<span className="text-gray-500 text-lg">/{sA?.wickets ?? 0}</span></p>
-        <p className="text-xs text-gray-600">{sA?.overs_faced ?? 0} ov</p>
+    <div className="flex items-center justify-between py-2">
+      <div className="flex items-center gap-2 min-w-0">
+        {/* Logo circle */}
+        <div className={`w-8 h-8 rounded-full flex items-center justify-center text-[11px] font-bold shrink-0 border ${
+          isWinner ? 'bg-emerald-900/60 border-emerald-700 text-emerald-200' : 'bg-gray-800 border-gray-700 text-gray-400'
+        }`}>
+          {display.replace(/^Team\s+/, '').slice(0, 3).toUpperCase()}
+        </div>
+        <span className={`text-sm font-bold truncate ${nameCol}`}>{display}</span>
+        {isWinner && <span className="text-[9px] bg-emerald-800/60 text-emerald-300 px-1.5 py-0.5 rounded font-bold shrink-0">WON</span>}
       </div>
-      <div className="text-gray-600 font-bold text-sm px-3">VS</div>
-      <div className="flex-1 text-center">
-        <p className="text-xs text-gray-400 truncate mb-0.5">{teamB}</p>
-        <p className="text-2xl font-bold text-white">{sB?.runs ?? 0}<span className="text-gray-500 text-lg">/{sB?.wickets ?? 0}</span></p>
-        <p className="text-xs text-gray-600">{sB?.overs_faced ?? 0} ov</p>
+
+      <div className={`text-right shrink-0 ${scoreCol}`}>
+        {sport === 'cricket' && (
+          <>
+            <span className="text-lg font-black tabular-nums">{score?.runs ?? 0}</span>
+            <span className="text-sm text-gray-500">/{score?.wickets ?? 0}</span>
+            <span className="text-xs text-gray-600 ml-1.5 tabular-nums">({score?.overs_faced ?? 0})</span>
+          </>
+        )}
+        {sport === 'football' && (
+          <span className="text-xl font-black tabular-nums">{score?.goals ?? 0}</span>
+        )}
+        {sport === 'badminton' && (
+          <span className="text-sm font-bold tabular-nums">{(score?.sets as number[] | null)?.join(' · ') ?? '–'}</span>
+        )}
       </div>
     </div>
   );
 }
 
-function FootballScore({ scores, teamA, teamB }: { scores: Score[]; teamA: string; teamB: string }) {
-  const sA = scores.find(s => s.team_name === teamA);
-  const sB = scores.find(s => s.team_name === teamB);
-  return (
-    <div className="flex items-center justify-between mt-3">
-      <div className="flex-1 text-center">
-        <p className="text-xs text-gray-400 truncate mb-0.5">{teamA}</p>
-        <p className="text-3xl font-bold text-white">{sA?.goals ?? 0}</p>
-      </div>
-      <div className="text-gray-600 font-bold text-lg px-3">–</div>
-      <div className="flex-1 text-center">
-        <p className="text-xs text-gray-400 truncate mb-0.5">{teamB}</p>
-        <p className="text-3xl font-bold text-white">{sB?.goals ?? 0}</p>
-      </div>
-    </div>
-  );
-}
-
-function BadmintonScore({ scores, teamA, teamB }: { scores: Score[]; teamA: string; teamB: string }) {
-  const sA = scores.find(s => s.team_name === teamA);
-  const sB = scores.find(s => s.team_name === teamB);
-  return (
-    <div className="flex items-center justify-between mt-3">
-      <div className="flex-1 text-center">
-        <p className="text-xs text-gray-400 truncate mb-0.5">{teamA}</p>
-        <p className="text-lg font-bold text-white">{(sA?.sets as number[] | null)?.join(' · ') ?? '–'}</p>
-      </div>
-      <div className="text-gray-600 font-bold text-sm px-3">VS</div>
-      <div className="flex-1 text-center">
-        <p className="text-xs text-gray-400 truncate mb-0.5">{teamB}</p>
-        <p className="text-lg font-bold text-white">{(sB?.sets as number[] | null)?.join(' · ') ?? '–'}</p>
-      </div>
-    </div>
-  );
-}
+// ── Card ──────────────────────────────────────────────────────────────────────
 
 export default function FeedMatchCard({ match }: { match: FeedMatch }) {
-  const topPerformers = match.player_performances
-    .filter(p => p.runs_scored > 0 || p.wickets_taken > 0 || p.goals_scored > 0 || p.catches_taken > 0)
-    .slice(0, 3);
+  const sA = match.match_scores.find(s => s.team_name === match.team_a_name);
+  const sB = match.match_scores.find(s => s.team_name === match.team_b_name);
+
+  // Determine winner (tolerates ad-hoc matches w/ no team IDs)
+  let winner: 'a' | 'b' | null = null;
+  const wn = match.winner_team_name;
+  if (wn === match.team_a_name) winner = 'a';
+  else if (wn === match.team_b_name) winner = 'b';
+  else if (match.winner_team_id) {
+    if (match.winner_team_id === match.team_a_id) winner = 'a';
+    else if (match.winner_team_id === match.team_b_id) winner = 'b';
+  }
+  // Score-based fallback if match completed but no winner stored
+  if (!winner && match.status === 'completed' && match.sport === 'cricket') {
+    const runsA = sA?.runs ?? 0, runsB = sB?.runs ?? 0;
+    if (runsA !== runsB) winner = runsA > runsB ? 'a' : 'b';
+  }
+
+  // Build result line ("X won by Y runs/wkts")
+  let resultLine = '';
+  if (match.status === 'completed') {
+    if (winner && match.sport === 'cricket') {
+      const runsA = sA?.runs ?? 0, runsB = sB?.runs ?? 0;
+      const wktsA = sA?.wickets ?? 0, wktsB = sB?.wickets ?? 0;
+      const winnerName = teamLabel(winner === 'a' ? match.team_a_name : match.team_b_name);
+      if (winner === 'a') {
+        resultLine = runsA > runsB ? `${winnerName} won by ${runsA - runsB} runs` : `${winnerName} won by ${Math.max(0, 10 - wktsA)} wkts`;
+      } else {
+        resultLine = runsB > runsA ? `${winnerName} won by ${runsB - runsA} runs` : `${winnerName} won by ${Math.max(0, 10 - wktsB)} wkts`;
+      }
+    } else if (winner) {
+      const winnerName = teamLabel(winner === 'a' ? match.team_a_name : match.team_b_name);
+      resultLine = `${winnerName} won`;
+    } else {
+      resultLine = 'Match ended — no result';
+    }
+  }
+
+  // Player of the Match (highest impact across both teams)
+  const pom = match.player_performances
+    .filter(p => impactScore(p) > 0)
+    .sort((a, b) => impactScore(b) - impactScore(a))[0];
 
   return (
     <Link href={`/matches/${match.id}`}>
-      <div className="bg-gray-900 border border-gray-800 hover:border-gray-700 rounded-2xl p-4 transition-colors cursor-pointer">
-        {/* Header */}
-        <div className="flex items-center justify-between mb-1">
-          <span className={`text-xs px-2.5 py-0.5 rounded-full border font-medium ${sportColor[match.sport]}`}>
+      <div className="bg-gray-900 border border-gray-800 hover:border-gray-700 rounded-2xl overflow-hidden transition-colors cursor-pointer">
+
+        {/* Header bar */}
+        <div className="flex items-center justify-between px-4 py-2 border-b border-gray-800 bg-gray-800/30">
+          <span className={`text-[11px] px-2 py-0.5 rounded-full border font-semibold ${sportColor[match.sport]}`}>
             {sportEmoji[match.sport]} {match.sport.charAt(0).toUpperCase() + match.sport.slice(1)}
           </span>
           <div className="flex items-center gap-2">
             {match.status === 'live' && (
-              <span className="flex items-center gap-1 text-xs text-red-400 font-semibold">
+              <span className="flex items-center gap-1 text-[11px] text-red-400 font-bold">
                 <span className="w-1.5 h-1.5 bg-red-400 rounded-full animate-pulse" />
                 LIVE
               </span>
             )}
-            <span className="text-xs text-gray-600">{timeAgo(match.played_at)}</span>
+            {match.status === 'completed' && (
+              <span className="text-[10px] text-gray-500 font-semibold uppercase tracking-wider">Completed</span>
+            )}
+            <span className="text-[11px] text-gray-600">· {timeAgo(match.played_at)}</span>
           </div>
         </div>
 
-        {/* Score */}
-        {match.sport === 'cricket' && (
-          <CricketScore scores={match.match_scores} teamA={match.team_a_name} teamB={match.team_b_name} />
-        )}
-        {match.sport === 'football' && (
-          <FootballScore scores={match.match_scores} teamA={match.team_a_name} teamB={match.team_b_name} />
-        )}
-        {match.sport === 'badminton' && (
-          <BadmintonScore scores={match.match_scores} teamA={match.team_a_name} teamB={match.team_b_name} />
-        )}
+        {/* Team rows (stacked, IPL-style) */}
+        <div className="px-4 divide-y divide-gray-800/60">
+          <TeamRow name={match.team_a_name} score={sA} sport={match.sport}
+            isWinner={winner === 'a'} dim={match.status === 'completed' && winner === 'b'} />
+          <TeamRow name={match.team_b_name} score={sB} sport={match.sport}
+            isWinner={winner === 'b'} dim={match.status === 'completed' && winner === 'a'} />
+        </div>
 
-        {/* Winner banner */}
-        {match.status === 'completed' && match.winner_team_id && (
-          <div className="mt-3 text-center">
-            <span className="text-xs text-emerald-400 font-semibold">
-              🏆 {match.winner_team_id === match.team_a_id ? match.team_a_name : match.team_b_name} won
-            </span>
+        {/* Result line */}
+        {resultLine && (
+          <div className={`px-4 py-2 border-t border-gray-800 ${winner ? 'bg-emerald-950/20' : 'bg-gray-800/20'}`}>
+            <p className={`text-xs font-semibold ${winner ? 'text-emerald-300' : 'text-gray-400'}`}>
+              {winner && '🏆 '}{resultLine}
+            </p>
           </div>
         )}
 
-        {/* Player performances */}
-        {topPerformers.length > 0 && (
-          <div className="mt-3 pt-3 border-t border-gray-800 flex flex-wrap gap-2">
-            {topPerformers.map(p => (
-              <Link
-                key={p.player_id}
-                href={`/players/${p.player_id}`}
-                onClick={e => e.stopPropagation()}
-                className="flex items-center gap-1.5 bg-gray-800 hover:bg-gray-700 rounded-full px-2.5 py-1 transition-colors"
-              >
-                <div className="w-4 h-4 rounded-full bg-emerald-700 flex items-center justify-center text-[9px] font-bold text-white">
-                  {p.name[0]}
-                </div>
-                <span className="text-xs text-white font-medium">{p.name.split(' ')[0]}</span>
-                <span className="text-xs text-gray-400">
+        {/* Player of the Match */}
+        {pom && match.status === 'completed' && (
+          <Link
+            href={`/players/${pom.player_id}`}
+            onClick={e => e.stopPropagation()}
+            className="flex items-center gap-2.5 px-4 py-2.5 border-t border-gray-800 hover:bg-gray-800/40 transition-colors">
+            <div className="w-7 h-7 rounded-full bg-gradient-to-br from-yellow-600 to-amber-700 flex items-center justify-center text-xs font-bold text-white border border-yellow-900/60 shrink-0">
+              {pom.name[0]?.toUpperCase()}
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-[10px] text-yellow-500 font-bold uppercase tracking-widest leading-none">Player of the Match</p>
+              <p className="text-xs text-white font-semibold mt-0.5 truncate">
+                {pom.name}
+                <span className="text-gray-500 font-normal ml-1.5">
                   {match.sport === 'cricket' && [
-                    p.runs_scored > 0 && `${p.runs_scored}r`,
-                    p.wickets_taken > 0 && `${p.wickets_taken}w`,
-                    p.catches_taken > 0 && `${p.catches_taken}c`,
-                  ].filter(Boolean).join(' ')}
-                  {match.sport === 'football' && p.goals_scored > 0 && `${p.goals_scored} goals`}
+                    pom.runs_scored > 0 && `${pom.runs_scored}r`,
+                    pom.wickets_taken > 0 && `${pom.wickets_taken}w`,
+                    pom.catches_taken > 0 && `${pom.catches_taken}c`,
+                  ].filter(Boolean).join(' · ')}
+                  {match.sport === 'football' && pom.goals_scored > 0 && `${pom.goals_scored} goals`}
                 </span>
-              </Link>
-            ))}
-          </div>
+              </p>
+            </div>
+          </Link>
         )}
       </div>
     </Link>
