@@ -1,4 +1,4 @@
-export type SportType = 'cricket' | 'football' | 'badminton';
+export type SportType = 'cricket' | 'football' | 'badminton' | 'table_tennis';
 export type MatchStatus = 'upcoming' | 'live' | 'completed';
 
 export interface Profile {
@@ -42,6 +42,8 @@ export interface Match {
   cricket_overs?: number;
   badminton_sets?: number;
   badminton_target_points?: number;
+  tt_sets?: number;
+  tt_target_points?: number;
   match_scores?: MatchScore[];
   // Cricket live state
   batting_team_name?: string | null;

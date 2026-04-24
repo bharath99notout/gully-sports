@@ -48,7 +48,7 @@ export function buildAthleteData(
   profile: { id: string; name: string; avatar_url?: string | null; created_at: string },
   stats: RawStat[]
 ): AthleteData {
-  const sports: SportKey[] = ['cricket', 'football', 'badminton'];
+  const sports: SportKey[] = ['cricket', 'football', 'badminton', 'table_tennis'];
 
   const sportStats = sports.reduce((acc, sport) => {
     const rows = stats.filter(s => s.sport === sport);

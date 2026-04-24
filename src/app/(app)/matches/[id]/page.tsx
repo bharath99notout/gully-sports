@@ -4,6 +4,7 @@ import SportBadge from '@/components/SportBadge';
 import CricketScorer from './CricketScorer';
 import FootballScorer from './FootballScorer';
 import BadmintonScorer from './BadmintonScorer';
+import TableTennisScorer from './TableTennisScorer';
 import MatchControls from './MatchControls';
 import ShareButton from '@/components/ShareButton';
 import { Match, MatchScore, MatchPlayer, CricketPlayerStat } from '@/types';
@@ -36,7 +37,7 @@ export default async function MatchDetailPage({ params }: Props) {
   let matchPlayers: MatchPlayer[] = [];
   let playerStats: Record<string, CricketPlayerStat> = {};
 
-  if (match.sport === 'badminton') {
+  if (match.sport === 'badminton' || match.sport === 'table_tennis') {
     const { data: mp } = await supabase
       .from('match_players')
       .select('id, match_id, player_id, team_name, profiles(name)')
@@ -137,6 +138,10 @@ export default async function MatchDetailPage({ params }: Props) {
       )}
       {match.sport === 'badminton' && (
         <BadmintonScorer match={match as Match} scoreA={scoreA} scoreB={scoreB} canEdit={canEdit}
+          matchPlayers={matchPlayers} />
+      )}
+      {match.sport === 'table_tennis' && (
+        <TableTennisScorer match={match as Match} scoreA={scoreA} scoreB={scoreB} canEdit={canEdit}
           matchPlayers={matchPlayers} />
       )}
 

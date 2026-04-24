@@ -113,9 +113,9 @@ export default async function LeaderboardPage() {
     a.stat.catches += r.catches_taken  ?? 0;
     a.stat.goals   += r.goals_scored   ?? 0;
 
-    // Badminton: compute sets_won + clean_sweeps for this match
+    // Racket sports (badminton / table tennis): compute sets_won + clean_sweeps
     let setsWon = 0, cleanSweeps = 0;
-    if (r.sport === 'badminton' && playerTeam) {
+    if ((r.sport === 'badminton' || r.sport === 'table_tennis') && playerTeam) {
       const teams = matchTeamNames.get(r.match_id);
       const opponentName = teams?.[0] === playerTeam ? teams?.[1] : teams?.[0];
       const mySets = setsMap.get(`${r.match_id}__${playerTeam}`) ?? [];
@@ -143,6 +143,7 @@ export default async function LeaderboardPage() {
   const cricket: LeaderboardEntry[] = [];
   const football: LeaderboardEntry[] = [];
   const badminton: LeaderboardEntry[] = [];
+  const table_tennis: LeaderboardEntry[] = [];
 
   for (const a of agg.values()) {
     const score  = calcCaliber(a.sport, a.stat);
@@ -159,16 +160,17 @@ export default async function LeaderboardPage() {
       wickets: a.stat.wickets,
       goals: a.stat.goals,
     };
-    if (a.sport === 'cricket')   cricket.push(entry);
-    if (a.sport === 'football')  football.push(entry);
-    if (a.sport === 'badminton') badminton.push(entry);
+    if (a.sport === 'cricket')      cricket.push(entry);
+    if (a.sport === 'football')     football.push(entry);
+    if (a.sport === 'badminton')    badminton.push(entry);
+    if (a.sport === 'table_tennis') table_tennis.push(entry);
   }
 
   return (
     <div className="max-w-2xl mx-auto">
       <h1 className="text-2xl font-bold text-white mb-1">🏆 Leaderboard</h1>
       <p className="text-sm text-gray-500 mb-5">Top players ranked by skill or career points</p>
-      <LeaderboardClient cricket={cricket} football={football} badminton={badminton} />
+      <LeaderboardClient cricket={cricket} football={football} badminton={badminton} table_tennis={table_tennis} />
     </div>
   );
 }

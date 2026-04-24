@@ -16,9 +16,10 @@ export interface AthleteData {
 
 
 const sportMeta: { key: SportKey; emoji: string; label: string }[] = [
-  { key: 'cricket', emoji: '🏏', label: 'Cricket' },
-  { key: 'football', emoji: '⚽', label: 'Football' },
-  { key: 'badminton', emoji: '🏸', label: 'Badminton' },
+  { key: 'cricket',      emoji: '🏏', label: 'Cricket' },
+  { key: 'football',     emoji: '⚽', label: 'Football' },
+  { key: 'badminton',    emoji: '🏸', label: 'Badminton' },
+  { key: 'table_tennis', emoji: '🏓', label: 'Table Tennis' },
 ];
 
 function statLine(sport: SportKey, s: SportStat): string {

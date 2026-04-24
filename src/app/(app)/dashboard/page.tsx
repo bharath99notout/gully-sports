@@ -112,6 +112,23 @@ export default async function DashboardPage() {
       achievements.push({ id: `mvp_${match.id}`, emoji: '🥇', title: 'Match MVP!', subtitle: `${match.team_a_name} vs ${match.team_b_name}`, color: 'gold' });
   }
 
+  // Badminton / Table Tennis: award match-win trophies
+  const myTeamByMatch = new Map<string, string>();
+  for (const mp of myMatchPlayers ?? []) myTeamByMatch.set(mp.match_id, mp.team_name);
+  for (const stat of myStats ?? []) {
+    if (stat.sport !== 'badminton' && stat.sport !== 'table_tennis') continue;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const m = (stat as any).matches as { winner_team_name?: string | null } | null;
+    const playerTeam = myTeamByMatch.get(stat.match_id);
+    if (!m?.winner_team_name || !playerTeam || m.winner_team_name !== playerTeam) continue;
+
+    if (stat.sport === 'badminton') {
+      achievements.push({ id: `bmn_win_${stat.match_id}`, emoji: '🏸', title: 'Badminton Win!', subtitle: 'You won the match', color: 'emerald' });
+    } else {
+      achievements.push({ id: `tt_win_${stat.match_id}`, emoji: '🏓', title: 'Table Tennis Win!', subtitle: 'You won the match', color: 'emerald' });
+    }
+  }
+
   return (
     <div className="max-w-2xl mx-auto flex flex-col gap-6">
 
@@ -132,14 +149,15 @@ export default async function DashboardPage() {
       />
 
       {/* New match CTA */}
-      <div className="flex gap-2">
+      <div className="grid grid-cols-2 gap-2">
         {[
-          { href: '/matches/new?sport=cricket', emoji: '🏏', label: 'Cricket' },
-          { href: '/matches/new?sport=football', emoji: '⚽', label: 'Football' },
-          { href: '/matches/new?sport=badminton', emoji: '🏸', label: 'Badminton' },
+          { href: '/matches/new?sport=cricket',      emoji: '🏏', label: 'Cricket' },
+          { href: '/matches/new?sport=football',     emoji: '⚽', label: 'Football' },
+          { href: '/matches/new?sport=badminton',    emoji: '🏸', label: 'Badminton' },
+          { href: '/matches/new?sport=table_tennis', emoji: '🏓', label: 'T. Tennis' },
         ].map(({ href, emoji, label }) => (
           <Link key={label} href={href}
-            className="flex-1 flex items-center justify-center gap-1.5 bg-gray-900 border border-gray-800 hover:border-emerald-700 hover:bg-emerald-950/20 rounded-xl py-2.5 text-sm text-gray-400 hover:text-emerald-400 font-medium transition-all">
+            className="flex items-center justify-center gap-1.5 bg-gray-900 border border-gray-800 hover:border-emerald-700 hover:bg-emerald-950/20 rounded-xl py-2.5 text-sm text-gray-400 hover:text-emerald-400 font-medium transition-all">
             <span>{emoji}</span> + {label}
           </Link>
         ))}

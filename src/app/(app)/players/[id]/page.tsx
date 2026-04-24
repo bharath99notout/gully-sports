@@ -69,12 +69,12 @@ export default async function PublicPlayerPage({ params }: Props) {
   const host = hdrs.get('host') ?? '';
   const proto = hdrs.get('x-forwarded-proto') ?? (host.includes('localhost') ? 'http' : 'https');
   const shareUrl = `${proto}://${host}/players/${id}`;
-  const sportLines = (['cricket', 'football', 'badminton'] as SportKey[])
+  const sportLines = (['cricket', 'football', 'badminton', 'table_tennis'] as SportKey[])
     .filter(s => athleteData.sportStats[s].matches > 0)
     .map(s => {
       const score = calcCaliber(s, athleteData.sportStats[s]);
       const label = getCaliberLabel(score);
-      const emoji = s === 'cricket' ? '🏏' : s === 'football' ? '⚽' : '🏸';
+      const emoji = s === 'cricket' ? '🏏' : s === 'football' ? '⚽' : s === 'badminton' ? '🏸' : '🏓';
       return `${emoji} ${label} (${score})`;
     });
   const shareText = [

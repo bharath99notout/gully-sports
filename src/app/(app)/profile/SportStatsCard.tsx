@@ -2,16 +2,17 @@
 
 import { useState } from 'react';
 
-type SportKey = 'cricket' | 'football' | 'badminton';
+type SportKey = 'cricket' | 'football' | 'badminton' | 'table_tennis';
 interface SportStat {
   matches: number; wins: number; runs: number;
   wickets: number; catches: number; goals: number;
 }
 
 const tabs: { key: SportKey; emoji: string; label: string }[] = [
-  { key: 'cricket', emoji: '🏏', label: 'Cricket' },
-  { key: 'football', emoji: '⚽', label: 'Football' },
-  { key: 'badminton', emoji: '🏸', label: 'Badminton' },
+  { key: 'cricket',      emoji: '🏏', label: 'Cricket' },
+  { key: 'football',     emoji: '⚽', label: 'Football' },
+  { key: 'badminton',    emoji: '🏸', label: 'Badminton' },
+  { key: 'table_tennis', emoji: '🏓', label: 'T. Tennis' },
 ];
 
 export default function SportStatsCard({ sportStats }: { sportStats: Record<SportKey, SportStat> }) {

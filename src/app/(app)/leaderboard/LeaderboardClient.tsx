@@ -19,9 +19,10 @@ export interface LeaderboardEntry {
 }
 
 const TABS: { key: SportKey; label: string; emoji: string }[] = [
-  { key: 'cricket',   label: 'Cricket',   emoji: '🏏' },
-  { key: 'football',  label: 'Football',  emoji: '⚽' },
-  { key: 'badminton', label: 'Badminton', emoji: '🏸' },
+  { key: 'cricket',      label: 'Cricket',   emoji: '🏏' },
+  { key: 'football',     label: 'Football',  emoji: '⚽' },
+  { key: 'badminton',    label: 'Badminton', emoji: '🏸' },
+  { key: 'table_tennis', label: 'T. Tennis', emoji: '🏓' },
 ];
 
 type Mode = 'skill' | 'points';
@@ -40,15 +41,20 @@ function rowColor(i: number) {
   return 'bg-gray-900/40 border-gray-800';
 }
 
-export default function LeaderboardClient({ cricket, football, badminton }: {
+export default function LeaderboardClient({ cricket, football, badminton, table_tennis }: {
   cricket: LeaderboardEntry[];
   football: LeaderboardEntry[];
   badminton: LeaderboardEntry[];
+  table_tennis: LeaderboardEntry[];
 }) {
   const [active, setActive] = useState<SportKey>('cricket');
   const [mode, setMode] = useState<Mode>('skill');
 
-  const base = active === 'cricket' ? cricket : active === 'football' ? football : badminton;
+  const base =
+    active === 'cricket'      ? cricket :
+    active === 'football'     ? football :
+    active === 'badminton'    ? badminton :
+    table_tennis;
   const entries = [...base].sort((a, b) =>
     mode === 'skill' ? b.score - a.score : b.points - a.points
   );
@@ -58,7 +64,11 @@ export default function LeaderboardClient({ cricket, football, badminton }: {
       {/* Sport tabs */}
       <div className="flex bg-gray-900 border border-gray-800 rounded-xl p-1">
         {TABS.map(t => {
-          const count = t.key === 'cricket' ? cricket.length : t.key === 'football' ? football.length : badminton.length;
+          const count =
+            t.key === 'cricket'      ? cricket.length :
+            t.key === 'football'     ? football.length :
+            t.key === 'badminton'    ? badminton.length :
+            table_tennis.length;
           return (
             <button key={t.key} onClick={() => setActive(t.key)}
               className={`flex-1 py-2 text-sm font-semibold rounded-lg transition-colors ${

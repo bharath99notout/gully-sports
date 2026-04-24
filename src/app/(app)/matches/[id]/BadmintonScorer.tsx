@@ -179,7 +179,7 @@ export default function BadmintonScorer({ match, scoreA, scoreB, canEdit, matchP
     const statRows = players.map(p => ({
       match_id: match.id,
       player_id: p.player_id,
-      sport: 'badminton' as const,
+      sport: match.sport, // keep the match's sport — badminton or table_tennis
       runs_scored: 0,
       wickets_taken: 0,
       catches_taken: 0,

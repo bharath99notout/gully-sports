@@ -10,9 +10,10 @@ import { SportType, Team } from '@/types';
 import { UserPlus, X, Search } from 'lucide-react';
 
 const sports: { value: SportType; label: string; emoji: string }[] = [
-  { value: 'cricket', label: 'Cricket', emoji: '🏏' },
-  { value: 'football', label: 'Football', emoji: '⚽' },
-  { value: 'badminton', label: 'Badminton', emoji: '🏸' },
+  { value: 'cricket',      label: 'Cricket',   emoji: '🏏' },
+  { value: 'football',     label: 'Football',  emoji: '⚽' },
+  { value: 'badminton',    label: 'Badminton', emoji: '🏸' },
+  { value: 'table_tennis', label: 'T. Tennis', emoji: '🏓' },
 ];
 
 interface PickedPlayer { id: string; name: string; }
@@ -28,6 +29,8 @@ function NewMatchForm() {
   const [overs, setOvers] = useState('10');
   const [badmintonTarget, setBadmintonTarget] = useState<15 | 21>(21);
   const [badmintonBestOf, setBadmintonBestOf] = useState<1 | 3 | 5>(3);
+  const [ttTarget, setTtTarget] = useState<11 | 15 | 21>(11);
+  const [ttBestOf, setTtBestOf] = useState<1 | 3 | 5 | 7>(5);
   const [myTeams, setMyTeams] = useState<Team[]>([]);
 
   // Badminton: player pickers (up to 2 per side for doubles)
@@ -60,7 +63,9 @@ function NewMatchForm() {
     let sideAName = teamAName;
     let sideBName = teamBName;
 
-    if (sport === 'badminton') {
+    const isRacket = sport === 'badminton' || sport === 'table_tennis';
+
+    if (isRacket) {
       if (sideAPlayers.length === 0 || sideBPlayers.length === 0) {
         setError('Add at least one player to each side'); return;
       }
@@ -82,13 +87,17 @@ function NewMatchForm() {
       team_b_name: sideBName,
       team_a_id: teamAId || null,
       team_b_id: teamBId || null,
-      status: sport === 'badminton' ? 'live' : 'upcoming', // badminton ready to score immediately
+      status: isRacket ? 'live' : 'upcoming', // racket sports ready to score immediately
       created_by: user!.id,
     };
     if (sport === 'cricket') matchPayload.cricket_overs = parseInt(overs);
     if (sport === 'badminton') {
       matchPayload.badminton_sets = badmintonBestOf;
       matchPayload.badminton_target_points = badmintonTarget;
+    }
+    if (sport === 'table_tennis') {
+      matchPayload.tt_sets = ttBestOf;
+      matchPayload.tt_target_points = ttTarget;
     }
 
     const { data: match, error: matchError } = await supabase
@@ -101,8 +110,8 @@ function NewMatchForm() {
       { match_id: match.id, team_id: teamBId || null, team_name: sideBName },
     ]);
 
-    // For badminton: also insert match_players rows
-    if (sport === 'badminton') {
+    // For racket sports: also insert match_players rows
+    if (isRacket) {
       const mpRows = [
         ...sideAPlayers.map(p => ({ match_id: match.id, player_id: p.id, team_name: sideAName })),
         ...sideBPlayers.map(p => ({ match_id: match.id, player_id: p.id, team_name: sideBName })),
@@ -140,6 +149,50 @@ function NewMatchForm() {
           {sport === 'cricket' && (
             <Input label="Overs" type="number" min="1" max="50"
               value={overs} onChange={e => setOvers(e.target.value)} />
+          )}
+
+          {/* Table Tennis options */}
+          {sport === 'table_tennis' && (
+            <div className="flex flex-col gap-4">
+              <div>
+                <label className="text-sm font-medium text-gray-300 block mb-2">Game to</label>
+                <div className="flex gap-2">
+                  {([11, 15, 21] as const).map(n => (
+                    <button key={n} type="button" onClick={() => setTtTarget(n)}
+                      className={`flex-1 py-2.5 rounded-lg border text-sm font-semibold transition-colors ${
+                        ttTarget === n
+                          ? 'border-emerald-500 bg-emerald-900/30 text-emerald-400'
+                          : 'border-gray-700 bg-gray-800 text-gray-400 hover:border-gray-600'
+                      }`}>
+                      {n} points
+                    </button>
+                  ))}
+                </div>
+                <p className="text-[11px] text-gray-600 mt-1">First to {ttTarget} wins the game.</p>
+              </div>
+
+              <div>
+                <label className="text-sm font-medium text-gray-300 block mb-2">Format</label>
+                <div className="flex gap-2">
+                  {([1, 3, 5, 7] as const).map(n => (
+                    <button key={n} type="button" onClick={() => setTtBestOf(n)}
+                      className={`flex-1 py-2.5 rounded-lg border text-xs font-semibold transition-colors ${
+                        ttBestOf === n
+                          ? 'border-emerald-500 bg-emerald-900/30 text-emerald-400'
+                          : 'border-gray-700 bg-gray-800 text-gray-400 hover:border-gray-600'
+                      }`}>
+                      {n === 1 ? '1 game' : `Best of ${n}`}
+                    </button>
+                  ))}
+                </div>
+                <p className="text-[11px] text-gray-600 mt-1">Add up to 2 players per side — 2 makes it doubles.</p>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <SidePicker label="Side A" players={sideAPlayers} setPlayers={setSideAPlayers} />
+                <SidePicker label="Side B" players={sideBPlayers} setPlayers={setSideBPlayers} />
+              </div>
+            </div>
           )}
 
           {/* Badminton options */}
@@ -190,7 +243,7 @@ function NewMatchForm() {
           )}
 
           {/* Cricket / Football team name inputs */}
-          {sport !== 'badminton' && (
+          {sport !== 'badminton' && sport !== 'table_tennis' && (
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <Input label="Team A" placeholder="Team name" value={teamAName}
