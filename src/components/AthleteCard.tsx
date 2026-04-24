@@ -1,7 +1,7 @@
 import Link from 'next/link';
 import CaliberBar from './CaliberBar';
 import {
-  calcCaliber, getPlayerTagline, getOverallLevel,
+  calcCaliber, getPlayerTagline, getPlayerTaglines, getOverallLevel,
   getCaliberColor, getCaliberTierLabel, CALIBER_TIERS,
   SportKey, SportStat,
 } from '@/lib/caliber';
@@ -53,6 +53,7 @@ interface Props {
 export default function AthleteCard({ athlete, compact = false, isOwn = false, editSlot }: Props) {
   const { name, avatarUrl, sportStats, joinedYear } = athlete;
   const tagline = getPlayerTagline(sportStats);
+  const sportTaglines = getPlayerTaglines(sportStats);
   const overallScore = getOverallLevel(sportStats);
   const { text: overallColor } = getCaliberColor(overallScore);
   const activeSportKeys = (sportMeta.filter(s => sportStats[s.key].matches > 0).map(s => s.key) as SportKey[]);
@@ -104,7 +105,17 @@ export default function AthleteCard({ athlete, compact = false, isOwn = false, e
         {/* Name + tagline */}
         <div className="mb-1">
           <h2 className={`font-bold text-white leading-tight ${compact ? 'text-base' : 'text-xl'}`}>{name}</h2>
-          <p className="text-sm text-gray-500 mt-0.5">{tagline}</p>
+          {sportTaglines.length === 0 ? (
+            <p className="text-sm text-gray-500 mt-0.5">{tagline}</p>
+          ) : (
+            <div className="mt-1 flex flex-wrap gap-1.5">
+              {sportTaglines.map((t, i) => (
+                <span key={i} className="text-xs px-2 py-0.5 rounded-full bg-gray-800 border border-gray-700 text-gray-300">
+                  {t}
+                </span>
+              ))}
+            </div>
+          )}
         </div>
 
         {/* Mini stats + year */}

@@ -73,7 +73,7 @@ export function getCaliberLabel(score: number) {
 const SPORT_TIER_NAMES: Record<SportKey, string[]> = {
   cricket:   ['Bench Warmer', 'Gully Star',      'Hard Hitter',       'Rohit Sharma Mode', 'Chris Gayle Mode',    'Virat Kohli Mode',    'Sachin Level'],
   football:  ['Bench Warmer', 'Gully Striker',   'Street Footballer', 'Chhetri Mode',      'Neymar Mode',         'Messi Mode',          'Ronaldo Level'],
-  badminton: ['Bench Warmer', 'Shuttle Rookie',  'Net Rusher',        'Saina Nehwal Mode', 'PV Sindhu Mode',      'Lee Chong Wei Mode',  'Lin Dan Level'],
+  badminton: ['Bench Warmer', 'Shuttle Rookie',  'Net Rusher',        'Padukone Mode',     'Srikanth Mode',       'Lee Chong Wei Mode',  'Lin Dan Level'],
 };
 
 const SPORT_TIER_EMOJIS: Record<SportKey, string[]> = {
@@ -114,8 +114,8 @@ export const CALIBER_TIERS: CaliberTier[] = [
   { label: 'Bench Warmer', range: '0',      min: 0,  max: 0,   index: 0, sportNames: { cricket: 'Bench Warmer',      football: 'Bench Warmer',       badminton: 'Bench Warmer'       }, sportEmojis: { cricket: '🪑', football: '🪑', badminton: '🪑' } },
   { label: 'Rookie',       range: '1–24',   min: 1,  max: 24,  index: 1, sportNames: { cricket: 'Gully Star',         football: 'Gully Striker',      badminton: 'Shuttle Rookie'     }, sportEmojis: { cricket: '🌟', football: '⚽', badminton: '🏸' } },
   { label: 'Amateur',      range: '25–49',  min: 25, max: 49,  index: 2, sportNames: { cricket: 'Hard Hitter',        football: 'Street Footballer',  badminton: 'Net Rusher'         }, sportEmojis: { cricket: '💪', football: '💨', badminton: '💨' } },
-  { label: 'Pro',          range: '50–69',  min: 50, max: 69,  index: 3, sportNames: { cricket: 'Rohit Sharma Mode',  football: 'Chhetri Mode',       badminton: 'Saina Nehwal Mode'  }, sportEmojis: { cricket: '🏏', football: '🇮🇳', badminton: '⭐' } },
-  { label: 'Expert',       range: '70–84',  min: 70, max: 84,  index: 4, sportNames: { cricket: 'Chris Gayle Mode',   football: 'Neymar Mode',        badminton: 'PV Sindhu Mode'     }, sportEmojis: { cricket: '🔥', football: '🎭', badminton: '🏆' } },
+  { label: 'Pro',          range: '50–69',  min: 50, max: 69,  index: 3, sportNames: { cricket: 'Rohit Sharma Mode',  football: 'Chhetri Mode',       badminton: 'Padukone Mode'      }, sportEmojis: { cricket: '🏏', football: '🇮🇳', badminton: '⭐' } },
+  { label: 'Expert',       range: '70–84',  min: 70, max: 84,  index: 4, sportNames: { cricket: 'Chris Gayle Mode',   football: 'Neymar Mode',        badminton: 'Srikanth Mode'      }, sportEmojis: { cricket: '🔥', football: '🎭', badminton: '🏆' } },
   { label: 'Champion',     range: '85–94',  min: 85, max: 94,  index: 5, sportNames: { cricket: 'Virat Kohli Mode',   football: 'Messi Mode',         badminton: 'Lee Chong Wei Mode' }, sportEmojis: { cricket: '👑', football: '🐐', badminton: '🌟' } },
   { label: 'Legend',       range: '95–100', min: 95, max: 100, index: 6, sportNames: { cricket: 'Sachin Level',       football: 'Ronaldo Level',      badminton: 'Lin Dan Level'      }, sportEmojis: { cricket: '🏆', football: '🔥', badminton: '👑' } },
 ];
@@ -200,4 +200,72 @@ export function getOverallLevel(sportStats: Record<SportKey, SportStat>): number
   const active = scores.filter(s => s > 0);
   if (active.length === 0) return 0;
   return Math.round(active.reduce((a, b) => a + b, 0) / active.length);
+}
+
+// ── Career points system ──────────────────────────────────────────────────────
+//
+// Points are cumulative and based on concrete actions, not averages. Different
+// from the caliber score (0–100 skill rating). A player's points grow over time
+// as they play more matches and hit milestones.
+
+export interface PerMatchStat {
+  runs_scored:   number;
+  wickets_taken: number;
+  catches_taken: number;
+  goals_scored:  number;
+  sets_won?:     number;   // badminton: sets this player/team won in the match
+  clean_sweeps?: number;   // badminton: count of sets where opponent scored 0
+  was_mvp?:      boolean;
+  won?:          boolean;
+}
+
+export function calcSportPoints(sport: SportKey, matches: PerMatchStat[]): number {
+  let pts = 0;
+  for (const m of matches) {
+    if (sport === 'cricket') {
+      pts += 1; // played
+      if (m.won) pts += 15;
+      pts += m.runs_scored;
+      pts += m.wickets_taken * 20;
+      pts += m.catches_taken * 5;
+      if (m.runs_scored >= 100)      pts += 75;
+      else if (m.runs_scored >= 50)  pts += 25;
+      if (m.wickets_taken >= 5)      pts += 40;
+      else if (m.wickets_taken >= 3) pts += 15;
+      if (m.was_mvp) pts += 30;
+    } else if (sport === 'football') {
+      pts += 2;
+      if (m.won) pts += 20;
+      pts += m.goals_scored * 15;
+      if (m.goals_scored >= 3) pts += 30;
+      if (m.was_mvp) pts += 25;
+    } else if (sport === 'badminton') {
+      pts += 5;
+      if (m.won) pts += 25;
+      pts += (m.sets_won ?? 0) * 5;
+      pts += (m.clean_sweeps ?? 0) * 15;
+    }
+  }
+  return pts;
+}
+
+// ── Multi-sport taglines ──────────────────────────────────────────────────────
+// Returns one tagline per ACTIVE sport. Format: "{tier} {sport-suffix}".
+// e.g. ["Amateur Cricketer", "Professional Shuttler"]
+
+const SPORT_SUFFIX: Record<SportKey, string> = {
+  cricket:   'Cricketer',
+  football:  'Footballer',
+  badminton: 'Shuttler',
+};
+
+export function getPlayerTaglines(sportStats: Record<SportKey, SportStat>): string[] {
+  const sports: SportKey[] = ['cricket', 'football', 'badminton'];
+  return sports
+    .filter(s => sportStats[s].matches > 0)
+    .map(s => {
+      const score = calcCaliber(s, sportStats[s]);
+      const tier = getCaliberLabel(score);
+      return `${tier} ${SPORT_SUFFIX[s]}`;
+    });
 }

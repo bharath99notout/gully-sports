@@ -3,37 +3,46 @@ import AthleteCard from '@/components/AthleteCard';
 import AvatarUpload from '@/components/AvatarUpload';
 import EditProfileForm from './EditProfileForm';
 import FeedMatchCard from '@/components/FeedMatchCard';
-import { buildAthleteData } from '@/lib/athleteData';
+import { buildAthleteData, enrichStatsWithTeamNames } from '@/lib/athleteData';
 
 export default async function ProfilePage() {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
 
-  const [{ data: profile }, { data: allStats }, { data: rawMatches }] = await Promise.all([
+  const [{ data: profile }, { data: allStats }, { data: rawMatches }, { data: myMatchPlayers }] = await Promise.all([
     supabase.from('profiles').select('id, name, avatar_url, created_at').eq('id', user!.id).single(),
 
     supabase
       .from('player_match_stats')
-      .select('sport, runs_scored, wickets_taken, catches_taken, goals_scored, match_id, matches(winner_team_id, team_a_id, team_b_id)')
+      .select('sport, runs_scored, wickets_taken, catches_taken, goals_scored, match_id, matches(winner_team_id, winner_team_name, team_a_id, team_b_id, team_a_name, team_b_name)')
       .eq('player_id', user!.id),
 
     supabase
       .from('matches')
       .select(`
         id, sport, status, team_a_name, team_b_name,
-        winner_team_id, team_a_id, team_b_id, played_at,
+        winner_team_id, winner_team_name, team_a_id, team_b_id, played_at,
         match_scores(team_name, runs, wickets, overs_faced, goals, sets),
         player_match_stats(player_id, runs_scored, wickets_taken, catches_taken, goals_scored, profiles(id, name))
       `)
       .neq('status', 'upcoming')
       .order('played_at', { ascending: false })
       .limit(10),
+
+    supabase
+      .from('match_players')
+      .select('match_id, team_name')
+      .eq('player_id', user!.id),
   ]);
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const enrichedStats = enrichStatsWithTeamNames(
+    (allStats ?? []) as unknown as Parameters<typeof enrichStatsWithTeamNames>[0],
+    (myMatchPlayers ?? []) as Array<{ match_id: string; team_name: string }>,
+  );
+
   const athleteData = buildAthleteData(
     profile ?? { id: user!.id, name: 'Player', avatar_url: null, created_at: new Date().toISOString() },
-    (allStats ?? []) as unknown as Parameters<typeof buildAthleteData>[1]
+    enrichedStats
   );
 
   const feedMatches = (rawMatches ?? []).map((m: Record<string, unknown>) => ({

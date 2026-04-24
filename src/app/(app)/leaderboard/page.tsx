@@ -1,6 +1,6 @@
 import { createClient } from '@/lib/supabase/server';
 import LeaderboardClient, { LeaderboardEntry } from './LeaderboardClient';
-import { calcCaliber, SportKey, SportStat } from '@/lib/caliber';
+import { calcCaliber, calcSportPoints, SportKey, SportStat, PerMatchStat } from '@/lib/caliber';
 
 interface RawStat {
   player_id: string;
@@ -21,6 +21,12 @@ interface RawStat {
   } | null;
 }
 
+interface SetRow {
+  match_id: string;
+  team_name: string;
+  sets: number[] | null;
+}
+
 export default async function LeaderboardPage() {
   const supabase = await createClient();
 
@@ -34,15 +40,47 @@ export default async function LeaderboardPage() {
     .returns<RawStat[]>();
 
   const raw = data ?? [];
+  const matchIds = Array.from(new Set(raw.map(r => r.match_id)));
 
-  // Aggregate per (player_id, sport)
+  // Map: `${match_id}__${player_id}` → team_name (to attribute wins)
+  const playerTeamMap = new Map<string, string>();
+  if (matchIds.length > 0) {
+    const { data: mp } = await supabase
+      .from('match_players')
+      .select('match_id, player_id, team_name')
+      .in('match_id', matchIds);
+    for (const row of mp ?? []) {
+      playerTeamMap.set(`${row.match_id}__${row.player_id}`, row.team_name);
+    }
+  }
+
+  // Map: `${match_id}__${team_name}` → sets[]  (for badminton bonuses)
+  const setsMap = new Map<string, number[]>();
+  const matchTeamNames = new Map<string, [string, string]>(); // match_id → [teamA, teamB]
+  if (matchIds.length > 0) {
+    const { data: ms } = await supabase
+      .from('match_scores')
+      .select('match_id, team_name, sets')
+      .in('match_id', matchIds)
+      .returns<SetRow[]>();
+    for (const row of ms ?? []) {
+      if (row.sets?.length) setsMap.set(`${row.match_id}__${row.team_name}`, row.sets);
+    }
+  }
+  for (const r of raw) {
+    if (r.matches && !matchTeamNames.has(r.match_id)) {
+      matchTeamNames.set(r.match_id, [r.matches.team_a_name, r.matches.team_b_name]);
+    }
+  }
+
+  // Aggregate
   const agg = new Map<string, {
     player_id: string;
     name: string;
     avatar_url: string | null;
     sport: SportKey;
     stat: SportStat;
-    playerTeamByMatch: Map<string, string>;
+    perMatch: PerMatchStat[];
   }>();
 
   for (const r of raw) {
@@ -55,69 +93,66 @@ export default async function LeaderboardPage() {
         avatar_url: r.profiles.avatar_url,
         sport: r.sport,
         stat: { matches: 0, wins: 0, runs: 0, wickets: 0, catches: 0, goals: 0 },
-        playerTeamByMatch: new Map(),
+        perMatch: [],
       });
     }
     const a = agg.get(key)!;
-    a.stat.matches += 1;
-    a.stat.runs += r.runs_scored ?? 0;
-    a.stat.wickets += r.wickets_taken ?? 0;
-    a.stat.catches += r.catches_taken ?? 0;
-    a.stat.goals += r.goals_scored ?? 0;
 
-    // Win counting — compare winner with match_players (we don't have team info on
-    // player_match_stats, so we derive a win if the match winner name matches ANY
-    // team this player is on — cheap approximation)
-    if (r.matches?.winner_team_name) {
-      // Heuristic: the player was on either team A or B; assume they won if their
-      // name is recorded on the winning team. Without team_name on stats, we
-      // count matches where a winner exists and the player appears in the match
-      // — simpler: count wins only if we can correlate. We'll fetch match_players
-      // separately below.
-    }
-  }
-
-  // Second pass: fetch match_players to attribute wins correctly
-  const matchIds = Array.from(new Set(raw.map(r => r.match_id)));
-  let playerTeamMap = new Map<string, string>(); // `${match_id}__${player_id}` → team_name
-  if (matchIds.length > 0) {
-    const { data: mp } = await supabase
-      .from('match_players')
-      .select('match_id, player_id, team_name')
-      .in('match_id', matchIds);
-    for (const row of mp ?? []) {
-      playerTeamMap.set(`${row.match_id}__${row.player_id}`, row.team_name);
-    }
-  }
-
-  // Third pass: count wins
-  for (const r of raw) {
-    if (!r.matches) continue;
-    const winner = r.matches.winner_team_name
-      ?? (r.matches.winner_team_id === r.matches.team_a_id ? r.matches.team_a_name
-        : r.matches.winner_team_id === r.matches.team_b_id ? r.matches.team_b_name : null);
-    if (!winner) continue;
+    // Determine win for THIS match
+    const winner = r.matches?.winner_team_name
+      ?? (r.matches?.winner_team_id && r.matches.winner_team_id === r.matches.team_a_id ? r.matches.team_a_name
+        : r.matches?.winner_team_id && r.matches.winner_team_id === r.matches.team_b_id ? r.matches.team_b_name : null);
     const playerTeam = playerTeamMap.get(`${r.match_id}__${r.player_id}`);
-    if (playerTeam === winner) {
-      const key = `${r.player_id}__${r.sport}`;
-      const a = agg.get(key);
-      if (a) a.stat.wins += 1;
+    const won = !!(winner && playerTeam && winner === playerTeam);
+
+    // Aggregate totals
+    a.stat.matches += 1;
+    if (won) a.stat.wins += 1;
+    a.stat.runs    += r.runs_scored    ?? 0;
+    a.stat.wickets += r.wickets_taken  ?? 0;
+    a.stat.catches += r.catches_taken  ?? 0;
+    a.stat.goals   += r.goals_scored   ?? 0;
+
+    // Badminton: compute sets_won + clean_sweeps for this match
+    let setsWon = 0, cleanSweeps = 0;
+    if (r.sport === 'badminton' && playerTeam) {
+      const teams = matchTeamNames.get(r.match_id);
+      const opponentName = teams?.[0] === playerTeam ? teams?.[1] : teams?.[0];
+      const mySets = setsMap.get(`${r.match_id}__${playerTeam}`) ?? [];
+      const oppSets = opponentName ? setsMap.get(`${r.match_id}__${opponentName}`) ?? [] : [];
+      for (let i = 0; i < mySets.length; i++) {
+        const mine = mySets[i] ?? 0;
+        const opp  = oppSets[i] ?? 0;
+        if (mine > opp) setsWon += 1;
+        if (mine > 0 && opp === 0) cleanSweeps += 1;
+      }
     }
+
+    a.perMatch.push({
+      runs_scored:   r.runs_scored   ?? 0,
+      wickets_taken: r.wickets_taken ?? 0,
+      catches_taken: r.catches_taken ?? 0,
+      goals_scored:  r.goals_scored  ?? 0,
+      sets_won:      setsWon,
+      clean_sweeps:  cleanSweeps,
+      won,
+    });
   }
 
-  // Build leaderboard entries per sport
-  const byScore = (a: LeaderboardEntry, b: LeaderboardEntry) => b.score - a.score;
+  // Build entries
   const cricket: LeaderboardEntry[] = [];
   const football: LeaderboardEntry[] = [];
   const badminton: LeaderboardEntry[] = [];
 
   for (const a of agg.values()) {
-    const score = calcCaliber(a.sport, a.stat);
+    const score  = calcCaliber(a.sport, a.stat);
+    const points = calcSportPoints(a.sport, a.perMatch);
     const entry: LeaderboardEntry = {
       player_id: a.player_id,
       name: a.name,
       avatar_url: a.avatar_url,
       score,
+      points,
       matches: a.stat.matches,
       wins: a.stat.wins,
       runs: a.stat.runs,
@@ -129,14 +164,10 @@ export default async function LeaderboardPage() {
     if (a.sport === 'badminton') badminton.push(entry);
   }
 
-  cricket.sort(byScore);
-  football.sort(byScore);
-  badminton.sort(byScore);
-
   return (
     <div className="max-w-2xl mx-auto">
       <h1 className="text-2xl font-bold text-white mb-1">🏆 Leaderboard</h1>
-      <p className="text-sm text-gray-500 mb-5">Top players ranked by caliber score</p>
+      <p className="text-sm text-gray-500 mb-5">Top players ranked by skill or career points</p>
       <LeaderboardClient cricket={cricket} football={football} badminton={badminton} />
     </div>
   );

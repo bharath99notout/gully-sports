@@ -41,6 +41,7 @@ export interface Match {
   created_at: string;
   cricket_overs?: number;
   badminton_sets?: number;
+  badminton_target_points?: number;
   match_scores?: MatchScore[];
   // Cricket live state
   batting_team_name?: string | null;

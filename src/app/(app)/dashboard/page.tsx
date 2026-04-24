@@ -4,19 +4,23 @@ import { Plus } from 'lucide-react';
 import AthleteCard from '@/components/AthleteCard';
 import AvatarUpload from '@/components/AvatarUpload';
 import FeedMatchCard from '@/components/FeedMatchCard';
-import { buildAthleteData } from '@/lib/athleteData';
+import { buildAthleteData, enrichStatsWithTeamNames } from '@/lib/athleteData';
 import TrophyBanner, { Achievement } from '@/components/TrophyBanner';
 
 export default async function DashboardPage() {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
 
-  // Fetch profile + stats first
-  const [{ data: profile }, { data: myStats }] = await Promise.all([
+  // Fetch profile + stats + match_players (for win attribution)
+  const [{ data: profile }, { data: myStats }, { data: myMatchPlayers }] = await Promise.all([
     supabase.from('profiles').select('id, name, avatar_url, created_at').eq('id', user!.id).single(),
     supabase
       .from('player_match_stats')
-      .select('sport, runs_scored, wickets_taken, catches_taken, goals_scored, match_id, matches(winner_team_id, team_a_id, team_b_id)')
+      .select('sport, runs_scored, wickets_taken, catches_taken, goals_scored, match_id, matches(winner_team_id, winner_team_name, team_a_id, team_b_id, team_a_name, team_b_name)')
+      .eq('player_id', user!.id),
+    supabase
+      .from('match_players')
+      .select('match_id, team_name')
       .eq('player_id', user!.id),
   ]);
 
@@ -46,9 +50,14 @@ export default async function DashboardPage() {
       : Promise.resolve({ data: [] }),
   ]);
 
+  const enrichedStats = enrichStatsWithTeamNames(
+    (myStats ?? []) as unknown as Parameters<typeof enrichStatsWithTeamNames>[0],
+    (myMatchPlayers ?? []) as Array<{ match_id: string; team_name: string }>,
+  );
+
   const athleteData = buildAthleteData(
     profile ?? { id: user!.id, name: 'Player', avatar_url: null, created_at: new Date().toISOString() },
-    (myStats ?? []) as unknown as Parameters<typeof buildAthleteData>[1]
+    enrichedStats
   );
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any

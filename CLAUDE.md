@@ -98,8 +98,8 @@ Score 0–100 per sport, averaged for overall.
 | 0 | Bench Warmer | Bench Warmer 🪑 | Bench Warmer 🪑 | Bench Warmer 🪑 |
 | 1–24 | Rookie | Gully Star 🌟 | Gully Striker ⚽ | Shuttle Rookie 🏸 |
 | 25–49 | Amateur | Hard Hitter 💪 | Street Footballer 💨 | Net Rusher 💨 |
-| 50–69 | Pro | Rohit Sharma Mode 🏏 | Chhetri Mode 🇮🇳 | Saina Nehwal Mode ⭐ |
-| 70–84 | Expert | Chris Gayle Mode 🔥 | Neymar Mode 🎭 | PV Sindhu Mode 🏆 |
+| 50–69 | Pro | Rohit Sharma Mode 🏏 | Chhetri Mode 🇮🇳 | Padukone Mode ⭐ |
+| 70–84 | Expert | Chris Gayle Mode 🔥 | Neymar Mode 🎭 | Srikanth Mode 🏆 |
 | 85–94 | Champion | Virat Kohli Mode 👑 | Messi Mode 🐐 | Lee Chong Wei Mode 🌟 |
 | 95–100 | Legend | Sachin Level 🏆 | Ronaldo Level 🔥 | Lin Dan Level 👑 |
 

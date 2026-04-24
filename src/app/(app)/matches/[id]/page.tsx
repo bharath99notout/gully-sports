@@ -30,9 +30,24 @@ export default async function MatchDetailPage({ params }: Props) {
   const scoreA = scores.find((s: MatchScore) => s.team_name === match.team_a_name) ?? null;
   const scoreB = scores.find((s: MatchScore) => s.team_name === match.team_b_name) ?? null;
 
-  // Fetch match players (cricket only)
+  // Fetch match players (cricket + badminton)
   let matchPlayers: MatchPlayer[] = [];
   let playerStats: Record<string, CricketPlayerStat> = {};
+
+  if (match.sport === 'badminton') {
+    const { data: mp } = await supabase
+      .from('match_players')
+      .select('id, match_id, player_id, team_name, profiles(name)')
+      .eq('match_id', id);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    matchPlayers = (mp ?? []).map((p: any) => ({
+      id: p.id,
+      match_id: p.match_id,
+      player_id: p.player_id,
+      team_name: p.team_name,
+      name: p.profiles?.name ?? 'Unknown',
+    }));
+  }
 
   if (match.sport === 'cricket') {
     const [{ data: mp }, { data: ps }] = await Promise.all([
@@ -116,7 +131,8 @@ export default async function MatchDetailPage({ params }: Props) {
         <FootballScorer match={match as Match} scoreA={scoreA} scoreB={scoreB} canEdit={canEdit} />
       )}
       {match.sport === 'badminton' && (
-        <BadmintonScorer match={match as Match} scoreA={scoreA} scoreB={scoreB} canEdit={canEdit} />
+        <BadmintonScorer match={match as Match} scoreA={scoreA} scoreB={scoreB} canEdit={canEdit}
+          matchPlayers={matchPlayers} />
       )}
 
       {/* Winner — use winner_team_name (works for ad-hoc matches too) */}

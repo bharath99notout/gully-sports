@@ -9,7 +9,8 @@ export interface LeaderboardEntry {
   player_id: string;
   name: string;
   avatar_url: string | null;
-  score: number;
+  score: number;       // caliber 0–100
+  points: number;      // career total
   matches: number;
   wins: number;
   runs: number;
@@ -22,6 +23,8 @@ const TABS: { key: SportKey; label: string; emoji: string }[] = [
   { key: 'football',  label: 'Football',  emoji: '⚽' },
   { key: 'badminton', label: 'Badminton', emoji: '🏸' },
 ];
+
+type Mode = 'skill' | 'points';
 
 function medal(i: number) {
   if (i === 0) return '🥇';
@@ -43,7 +46,12 @@ export default function LeaderboardClient({ cricket, football, badminton }: {
   badminton: LeaderboardEntry[];
 }) {
   const [active, setActive] = useState<SportKey>('cricket');
-  const entries = active === 'cricket' ? cricket : active === 'football' ? football : badminton;
+  const [mode, setMode] = useState<Mode>('skill');
+
+  const base = active === 'cricket' ? cricket : active === 'football' ? football : badminton;
+  const entries = [...base].sort((a, b) =>
+    mode === 'skill' ? b.score - a.score : b.points - a.points
+  );
 
   return (
     <div className="flex flex-col gap-4">
@@ -63,6 +71,25 @@ export default function LeaderboardClient({ cricket, football, badminton }: {
         })}
       </div>
 
+      {/* Mode toggle — Skill vs Points */}
+      <div className="flex items-center gap-2 text-xs">
+        <span className="text-gray-500">Rank by:</span>
+        <div className="flex bg-gray-900 border border-gray-800 rounded-lg p-0.5">
+          <button onClick={() => setMode('skill')}
+            className={`px-3 py-1 rounded font-semibold transition-colors ${
+              mode === 'skill' ? 'bg-emerald-700/50 text-emerald-200' : 'text-gray-500 hover:text-gray-300'
+            }`}>
+            🎯 Skill
+          </button>
+          <button onClick={() => setMode('points')}
+            className={`px-3 py-1 rounded font-semibold transition-colors ${
+              mode === 'points' ? 'bg-emerald-700/50 text-emerald-200' : 'text-gray-500 hover:text-gray-300'
+            }`}>
+            🏆 Career Points
+          </button>
+        </div>
+      </div>
+
       {/* Leaderboard */}
       {entries.length === 0 ? (
         <div className="bg-gray-900 border border-gray-800 rounded-2xl p-8 text-center">
@@ -77,12 +104,8 @@ export default function LeaderboardClient({ cricket, football, badminton }: {
             return (
               <Link key={e.player_id} href={`/players/${e.player_id}`}
                 className={`flex items-center gap-3 px-3 py-2.5 rounded-xl border transition-colors hover:bg-gray-800/60 ${rowColor(i)}`}>
-                {/* Rank */}
-                <div className="w-8 text-center text-sm font-bold shrink-0">
-                  {medal(i)}
-                </div>
+                <div className="w-8 text-center text-sm font-bold shrink-0">{medal(i)}</div>
 
-                {/* Avatar */}
                 {e.avatar_url ? (
                   // eslint-disable-next-line @next/next/no-img-element
                   <img src={e.avatar_url} alt={e.name}
@@ -93,20 +116,29 @@ export default function LeaderboardClient({ cricket, football, badminton }: {
                   </div>
                 )}
 
-                {/* Name + tier */}
                 <div className="flex-1 min-w-0">
                   <p className="text-sm font-bold text-white truncate">{e.name}</p>
                   <p className={`text-xs truncate ${col}`}>{tierLabel}</p>
                 </div>
 
-                {/* Score + key stat */}
                 <div className="text-right shrink-0">
-                  <p className={`text-xl font-black tabular-nums leading-none ${col}`}>{e.score}</p>
-                  <p className="text-[11px] text-gray-500 mt-1 tabular-nums">
-                    {active === 'cricket'   && (e.runs > 0 || e.wickets > 0 ? `${e.runs}r · ${e.wickets}w` : `${e.matches}m`)}
-                    {active === 'football'  && `${e.goals}g · ${e.matches}m`}
-                    {active === 'badminton' && `${e.wins}/${e.matches}`}
-                  </p>
+                  {mode === 'skill' ? (
+                    <>
+                      <p className={`text-xl font-black tabular-nums leading-none ${col}`}>{e.score}</p>
+                      <p className="text-[10px] text-gray-500 mt-1 tabular-nums">
+                        {e.points.toLocaleString()} pts
+                      </p>
+                    </>
+                  ) : (
+                    <>
+                      <p className="text-xl font-black tabular-nums leading-none text-white">
+                        {e.points.toLocaleString()}
+                      </p>
+                      <p className={`text-[10px] mt-1 tabular-nums ${col}`}>
+                        Skill {e.score}
+                      </p>
+                    </>
+                  )}
                 </div>
               </Link>
             );
