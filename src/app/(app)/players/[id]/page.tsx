@@ -3,6 +3,9 @@ import { notFound } from 'next/navigation';
 import FeedMatchCard from '@/components/FeedMatchCard';
 import AthleteCard from '@/components/AthleteCard';
 import { buildAthleteData, enrichStatsWithTeamNames } from '@/lib/athleteData';
+import ShareButton from '@/components/ShareButton';
+import { headers } from 'next/headers';
+import { calcCaliber, getCaliberLabel, SportKey } from '@/lib/caliber';
 
 interface Props { params: Promise<{ id: string }> }
 
@@ -61,8 +64,30 @@ export default async function PublicPlayerPage({ params }: Props) {
       })),
     }));
 
+  // Build share text
+  const hdrs = await headers();
+  const host = hdrs.get('host') ?? '';
+  const proto = hdrs.get('x-forwarded-proto') ?? (host.includes('localhost') ? 'http' : 'https');
+  const shareUrl = `${proto}://${host}/players/${id}`;
+  const sportLines = (['cricket', 'football', 'badminton'] as SportKey[])
+    .filter(s => athleteData.sportStats[s].matches > 0)
+    .map(s => {
+      const score = calcCaliber(s, athleteData.sportStats[s]);
+      const label = getCaliberLabel(score);
+      const emoji = s === 'cricket' ? '🏏' : s === 'football' ? '⚽' : '🏸';
+      return `${emoji} ${label} (${score})`;
+    });
+  const shareText = [
+    `🏆 ${athleteData.name} on GullySports`,
+    ...sportLines,
+  ].join('\n');
+
   return (
     <div className="max-w-2xl mx-auto flex flex-col gap-6">
+
+      <div className="flex justify-end">
+        <ShareButton text={shareText} url={shareUrl} title={`${athleteData.name} – GullySports`} variant="inline" label="Share profile" />
+      </div>
 
       <AthleteCard athlete={athleteData} />
 

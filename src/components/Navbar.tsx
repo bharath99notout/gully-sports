@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { Trophy, Users, Calendar, User, LogOut, Menu, X, Search, Medal } from 'lucide-react';
+import { Trophy, Users, Calendar, User, LogOut, Menu, X, Search, Medal, Share2 } from 'lucide-react';
 import { useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
 
@@ -24,6 +24,16 @@ export default function Navbar() {
     const supabase = createClient();
     await supabase.auth.signOut();
     router.push('/auth/login');
+  }
+
+  async function shareApp() {
+    const url = typeof window !== 'undefined' ? window.location.origin : '';
+    const text = '🏆 Score your gully cricket, football & badminton matches on GullySports. Build your career stats!';
+    if (typeof navigator !== 'undefined' && 'share' in navigator) {
+      try { await navigator.share({ title: 'GullySports', text, url }); return; }
+      catch { /* fall through */ }
+    }
+    window.open(`https://wa.me/?text=${encodeURIComponent(`${text} ${url}`)}`, '_blank', 'noopener,noreferrer');
   }
 
   return (
@@ -51,15 +61,38 @@ export default function Navbar() {
             </Link>
           ))}
           <button
+            onClick={shareApp}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm text-emerald-400 hover:text-emerald-300 hover:bg-emerald-900/30 transition-colors ml-2"
+            title="Share GullySports"
+          >
+            <Share2 size={16} />
+            Share
+          </button>
+          <button
             onClick={signOut}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm text-gray-400 hover:text-red-400 hover:bg-gray-800 transition-colors ml-2"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm text-gray-400 hover:text-red-400 hover:bg-gray-800 transition-colors"
           >
             <LogOut size={16} />
             Sign Out
           </button>
         </div>
 
-        {/* Mobile menu toggle */}
+        {/* Mobile share icon + menu toggle */}
+        <div className="md:hidden flex items-center gap-1">
+          <button
+            onClick={shareApp}
+            className="p-2 text-emerald-400 hover:text-emerald-300"
+            title="Share GullySports"
+          >
+            <Share2 size={18} />
+          </button>
+          <button
+            className="p-2 text-gray-400"
+            onClick={() => setMenuOpen(!menuOpen)}
+          >
+            {menuOpen ? <X size={20} /> : <Menu size={20} />}
+          </button>
+        </div>
         <button
           className="md:hidden text-gray-400"
           onClick={() => setMenuOpen(!menuOpen)}
@@ -86,6 +119,13 @@ export default function Navbar() {
               {label}
             </Link>
           ))}
+          <button
+            onClick={() => { setMenuOpen(false); shareApp(); }}
+            className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-emerald-400 hover:text-emerald-300 hover:bg-emerald-900/30 transition-colors"
+          >
+            <Share2 size={16} />
+            Share GullySports
+          </button>
           <button
             onClick={signOut}
             className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-gray-400 hover:text-red-400 hover:bg-gray-800 transition-colors"

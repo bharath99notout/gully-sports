@@ -5,7 +5,9 @@ import CricketScorer from './CricketScorer';
 import FootballScorer from './FootballScorer';
 import BadmintonScorer from './BadmintonScorer';
 import MatchControls from './MatchControls';
+import ShareButton from '@/components/ShareButton';
 import { Match, MatchScore, MatchPlayer, CricketPlayerStat } from '@/types';
+import { headers } from 'next/headers';
 
 interface Props {
   params: Promise<{ id: string }>;
@@ -113,7 +115,10 @@ export default async function MatchDetailPage({ params }: Props) {
             <p className="text-sm text-gray-500 mt-0.5">{match.cricket_overs} overs</p>
           )}
         </div>
-        {canEdit && <MatchControls match={match as Match} />}
+        <div className="flex items-center gap-2">
+          <MatchShareTrigger match={match as Match} scoreA={scoreA} scoreB={scoreB} />
+          {canEdit && <MatchControls match={match as Match} />}
+        </div>
       </div>
 
       {/* Scorer */}
@@ -150,4 +155,42 @@ export default async function MatchDetailPage({ params }: Props) {
       )}
     </div>
   );
+}
+
+// ── Share trigger: builds absolute URL + summary text ──────────────────────────
+
+async function MatchShareTrigger({ match, scoreA, scoreB }: {
+  match: Match;
+  scoreA: MatchScore | null;
+  scoreB: MatchScore | null;
+}) {
+  const hdrs = await headers();
+  const host = hdrs.get('host') ?? '';
+  const proto = hdrs.get('x-forwarded-proto') ?? (host.includes('localhost') ? 'http' : 'https');
+  const url = `${proto}://${host}/matches/${match.id}`;
+
+  const teamA = /^\d+$/.test(match.team_a_name.trim()) ? `Team ${match.team_a_name}` : match.team_a_name;
+  const teamB = /^\d+$/.test(match.team_b_name.trim()) ? `Team ${match.team_b_name}` : match.team_b_name;
+  const sportEmoji = match.sport === 'cricket' ? '🏏' : match.sport === 'football' ? '⚽' : '🏸';
+
+  let scoreLine = '';
+  if (match.sport === 'cricket') {
+    scoreLine = `${teamA} ${scoreA?.runs ?? 0}/${scoreA?.wickets ?? 0} · ${teamB} ${scoreB?.runs ?? 0}/${scoreB?.wickets ?? 0}`;
+  } else if (match.sport === 'football') {
+    scoreLine = `${teamA} ${scoreA?.goals ?? 0} - ${scoreB?.goals ?? 0} ${teamB}`;
+  } else {
+    const a = (scoreA?.sets ?? []).join('·') || '–';
+    const b = (scoreB?.sets ?? []).join('·') || '–';
+    scoreLine = `${teamA} [${a}] vs ${teamB} [${b}]`;
+  }
+
+  const winner = match.winner_team_name
+    ?? (match.winner_team_id === match.team_a_id ? match.team_a_name : match.team_b_name);
+  const winnerLine = match.status === 'completed' && winner
+    ? `🏆 ${/^\d+$/.test(winner.trim()) ? `Team ${winner}` : winner} won`
+    : match.status === 'live' ? '🔴 LIVE' : '';
+
+  const text = [`${sportEmoji} ${teamA} vs ${teamB}`, scoreLine, winnerLine].filter(Boolean).join('\n');
+
+  return <ShareButton text={text} url={url} title="GullySports Match" variant="icon" />;
 }
