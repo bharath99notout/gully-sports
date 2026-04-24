@@ -42,6 +42,7 @@ export default function SignupPage() {
     setError('');
     setLoading(true);
 
+    let alreadyExists = false;
     try {
       // Detect existing account by attempting a silent sign-in on a detached
       // client (persistSession:false so this never leaves a stray session).
@@ -56,7 +57,13 @@ export default function SignupPage() {
         password: phone.slice(-6),
       });
       if (data?.user) {
+        alreadyExists = true;
         setError('already-exists');
+        // Defensive: even with persistSession:false, @supabase/ssr may write
+        // cookies. Explicitly sign out on the MAIN client so the user isn't
+        // silently logged in as that existing account.
+        const mainClient = createClient();
+        await mainClient.auth.signOut();
         return;
       }
     } catch {
@@ -65,7 +72,7 @@ export default function SignupPage() {
       setLoading(false);
     }
 
-    setStep('otp');
+    if (!alreadyExists) setStep('otp');
   }
 
   async function handleOtp(e: React.FormEvent) {

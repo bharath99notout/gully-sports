@@ -327,6 +327,10 @@ export default function CricketScorer({
     if (cleanPhone.length !== 10) { alert('Phone must be 10 digits'); return; }
 
     setBusy(true);
+
+    // Snapshot our session BEFORE any auth op — signUp may clobber cookies.
+    const { data: { session: mySession } } = await supabase.auth.getSession();
+
     try {
       // 1. If a profile with this phone already exists, just add them directly.
       const { data: existing } = await supabase.from('profiles')
@@ -337,7 +341,6 @@ export default function CricketScorer({
       }
 
       // 2. Create a new auth user WITHOUT touching the current session.
-      //    persistSession:false ensures tokens aren't written to localStorage.
       const { createBrowserClient } = await import('@supabase/ssr');
       const tempClient = createBrowserClient(
         process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -357,10 +360,16 @@ export default function CricketScorer({
         return;
       }
 
-      // 3. The profile row is auto-created by the DB trigger with name + phone.
-      //    Just add them to the match.
+      // 3. DB trigger auto-creates the profile with name + phone. Add to match.
       await addPlayer({ id: signup.user.id, name: cleanName, phone: cleanPhone });
     } finally {
+      // Restore ORIGINAL session — undo any cookie clobber from signUp
+      if (mySession) {
+        await supabase.auth.setSession({
+          access_token: mySession.access_token,
+          refresh_token: mySession.refresh_token,
+        });
+      }
       setBusy(false);
     }
   }

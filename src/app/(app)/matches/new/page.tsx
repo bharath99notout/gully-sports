@@ -327,8 +327,11 @@ function SidePicker({ label, players, setPlayers }: {
     if (!cleanName) { alert('Enter a name'); return; }
     if (cleanPhone.length !== 10) { alert('Phone must be 10 digits'); return; }
     setBusy(true);
+    const supabase = createClient();
+    // Snapshot our session — signUp can clobber it
+    const { data: { session: mySession } } = await supabase.auth.getSession();
+
     try {
-      const supabase = createClient();
       const { data: existing } = await supabase.from('profiles')
         .select('id, name').eq('phone', cleanPhone).maybeSingle();
       if (existing) { pick({ id: existing.id, name: existing.name || cleanName }); return; }
@@ -346,6 +349,13 @@ function SidePicker({ label, players, setPlayers }: {
       if (error || !signup.user) { alert('Could not create player: ' + (error?.message ?? 'error')); return; }
       pick({ id: signup.user.id, name: cleanName });
     } finally {
+      // Restore ORIGINAL session so the match creator doesn't get replaced
+      if (mySession) {
+        await supabase.auth.setSession({
+          access_token: mySession.access_token,
+          refresh_token: mySession.refresh_token,
+        });
+      }
       setBusy(false);
       setCreating(false); setNewName(''); setNewPhone('');
     }

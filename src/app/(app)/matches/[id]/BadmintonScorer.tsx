@@ -133,6 +133,11 @@ export default function BadmintonScorer({ match, scoreA, scoreB, canEdit, matchP
     if (!cleanName) { alert('Enter a name'); return; }
     if (cleanPhone.length !== 10) { alert('Phone must be 10 digits'); return; }
     setBusy(true);
+
+    // Snapshot our session BEFORE any auth op — signUp auto-signs-in the new
+    // user and @supabase/ssr may clobber our session cookies.
+    const { data: { session: mySession } } = await supabase.auth.getSession();
+
     try {
       const { data: existing } = await supabase.from('profiles')
         .select('id, name').eq('phone', cleanPhone).maybeSingle();
@@ -155,6 +160,13 @@ export default function BadmintonScorer({ match, scoreA, scoreB, canEdit, matchP
       }
       await addPlayer({ id: signup.user.id, name: cleanName });
     } finally {
+      // Restore ORIGINAL session — undo any cookie clobber from signUp
+      if (mySession) {
+        await supabase.auth.setSession({
+          access_token: mySession.access_token,
+          refresh_token: mySession.refresh_token,
+        });
+      }
       setBusy(false);
       setNewOpen(false); setNewName(''); setNewPhone('');
     }
