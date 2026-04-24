@@ -37,9 +37,34 @@ export default function SignupPage() {
     })();
   }, []);
 
-  function handlePhone(e: React.FormEvent) {
+  async function handlePhone(e: React.FormEvent) {
     e.preventDefault();
     setError('');
+    setLoading(true);
+
+    try {
+      // Detect existing account by attempting a silent sign-in on a detached
+      // client (persistSession:false so this never leaves a stray session).
+      const { createBrowserClient } = await import('@supabase/ssr');
+      const tempClient = createBrowserClient(
+        process.env.NEXT_PUBLIC_SUPABASE_URL!,
+        process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+        { auth: { persistSession: false, autoRefreshToken: false } }
+      );
+      const { data } = await tempClient.auth.signInWithPassword({
+        email: `${phone}@live.com`,
+        password: phone.slice(-6),
+      });
+      if (data?.user) {
+        setError('already-exists');
+        return;
+      }
+    } catch {
+      // Network hiccup — fall through and let OTP step proceed
+    } finally {
+      setLoading(false);
+    }
+
     setStep('otp');
   }
 
@@ -119,14 +144,32 @@ export default function SignupPage() {
                       inputMode="numeric"
                       placeholder="98765 43210"
                       value={phone}
-                      onChange={e => setPhone(e.target.value.replace(/\D/g, '').slice(0, 10))}
+                      onChange={e => { setPhone(e.target.value.replace(/\D/g, '').slice(0, 10)); if (error) setError(''); }}
                       className="flex-1 bg-transparent px-3 py-2.5 text-sm text-white placeholder-gray-600 focus:outline-none"
                       required
                       autoFocus
                     />
                   </div>
                 </div>
-                <Button type="submit" size="lg" disabled={phone.length < 10}>
+
+                {error === 'already-exists' ? (
+                  <div className="bg-amber-950/30 border border-amber-800/60 rounded-xl px-3 py-2.5 flex flex-col gap-2">
+                    <p className="text-sm text-amber-300">
+                      <span className="font-semibold">This number is already registered.</span>
+                      <br />
+                      <span className="text-gray-400">Please sign in with your existing account.</span>
+                    </p>
+                    <Link
+                      href={`/auth/login?phone=${phone}`}
+                      className="bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-bold py-2 rounded-lg text-center transition-colors">
+                      Go to Sign In →
+                    </Link>
+                  </div>
+                ) : error ? (
+                  <p className="text-sm text-red-400">{error}</p>
+                ) : null}
+
+                <Button type="submit" size="lg" loading={loading} disabled={phone.length < 10}>
                   Send OTP
                 </Button>
               </form>

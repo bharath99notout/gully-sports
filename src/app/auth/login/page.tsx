@@ -1,6 +1,7 @@
 'use client';
 
-import { useState } from 'react';
+import { Suspense, useEffect, useState } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { Trophy } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 import Link from 'next/link';
@@ -17,12 +18,19 @@ async function getDestination(supabase: ReturnType<typeof createClient>) {
   return (!profile?.name?.trim() || nameIsPhone) ? '/auth/signup' : '/dashboard';
 }
 
-export default function LoginPage() {
+function LoginForm() {
+  const searchParams = useSearchParams();
   const [step, setStep] = useState<Step>('phone');
   const [phone, setPhone] = useState('');
   const [otp, setOtp] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+
+  // Pre-fill phone if passed as ?phone=... (from signup redirect)
+  useEffect(() => {
+    const p = searchParams.get('phone');
+    if (p && /^\d{10}$/.test(p)) setPhone(p);
+  }, [searchParams]);
 
   function handlePhone(e: React.FormEvent) {
     e.preventDefault();
@@ -142,5 +150,13 @@ export default function LoginPage() {
 
       </div>
     </div>
+  );
+}
+
+export default function LoginPage() {
+  return (
+    <Suspense fallback={<div className="min-h-screen bg-gray-950" />}>
+      <LoginForm />
+    </Suspense>
   );
 }
