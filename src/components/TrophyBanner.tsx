@@ -14,7 +14,8 @@ export interface Achievement {
 
 const DISPLAY_MS = 5000;
 const ANIM_MS    = 450;
-const MAX_VIEWS  = 1;
+const MAX_VIEWS  = 2;
+const LS_KEY     = 'gs_ach';
 
 const colorMap = {
   gold:    { border: 'border-yellow-700/60', bg: 'from-yellow-950/80 via-amber-950/60 to-yellow-950/80', bar: 'bg-yellow-600/60', text: 'text-yellow-400', confetti: ['#f59e0b', '#fbbf24', '#fde68a', '#fff8dc', '#ffffff'] },
@@ -23,24 +24,57 @@ const colorMap = {
   blue:    { border: 'border-blue-700/60', bg: 'from-blue-950/80 via-indigo-950/60 to-blue-950/80', bar: 'bg-blue-500/60', text: 'text-blue-400', confetti: ['#3b82f6', '#60a5fa', '#93c5fd', '#818cf8', '#ffffff'] },
 };
 
+// Robust read of view counts. Handles legacy array format "['id1','id2']" from
+// earlier versions of this component by treating each id as already fully seen.
+function readCounts(): Record<string, number> {
+  try {
+    const raw = localStorage.getItem(LS_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw);
+    if (Array.isArray(parsed)) {
+      const migrated: Record<string, number> = {};
+      for (const id of parsed) if (typeof id === 'string') migrated[id] = MAX_VIEWS;
+      localStorage.setItem(LS_KEY, JSON.stringify(migrated));
+      return migrated;
+    }
+    if (parsed && typeof parsed === 'object') return parsed as Record<string, number>;
+    return {};
+  } catch { return {}; }
+}
+
+function writeCounts(counts: Record<string, number>) {
+  try { localStorage.setItem(LS_KEY, JSON.stringify(counts)); } catch {}
+}
+
 export default function TrophyBanner({ achievements }: { achievements: Achievement[] }) {
   const [queue, setQueue]     = useState<Achievement[]>([]);
   const [current, setCurrent] = useState<Achievement | null>(null);
   const [phase, setPhase]     = useState<'enter' | 'exit'>('enter');
-  const timerRef  = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const exitingRef = useRef(false);
+  const timerRef    = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const exitingRef  = useRef(false);
+  const initializedRef = useRef(false); // Strict-Mode-safe: only run init once
 
-  // Filter achievements that haven't been shown 3 times yet
+  // On mount: filter eligible achievements AND immediately persist a view.
+  // Incrementing upfront (not on dismiss) means a fast refresh can't replay the
+  // badge — once it enters the queue, it counts as a view.
   useEffect(() => {
+    if (initializedRef.current) return;
+    initializedRef.current = true;
     if (!achievements.length) return;
-    let counts: Record<string, number> = {};
-    try { counts = JSON.parse(localStorage.getItem('gs_ach') ?? '{}'); } catch {}
-    const fresh = achievements.filter(a => (counts[a.id] ?? 0) < MAX_VIEWS);
-    if (fresh.length) setQueue(fresh);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
 
-  // When nothing is showing and queue has items, show next
+    const counts = readCounts();
+    const fresh = achievements.filter(a => (counts[a.id] ?? 0) < MAX_VIEWS);
+    if (!fresh.length) return;
+
+    // Mark each queued achievement as viewed right now — even if the user
+    // refreshes mid-display, the count is already up-to-date.
+    for (const a of fresh) counts[a.id] = (counts[a.id] ?? 0) + 1;
+    writeCounts(counts);
+
+    setQueue(fresh);
+  }, [achievements]);
+
+  // Pop next from queue when nothing is showing
   useEffect(() => {
     if (current !== null || queue.length === 0) return;
     const [next, ...rest] = queue;
@@ -50,14 +84,13 @@ export default function TrophyBanner({ achievements }: { achievements: Achieveme
     setCurrent(next);
   }, [current, queue]);
 
-  // Fire confetti and start auto-dismiss timer whenever current changes
+  // Confetti + auto-dismiss when current changes
   useEffect(() => {
     if (!current) return;
     const c = colorMap[current.color ?? 'gold'];
     const isGold = !current.color || current.color === 'gold';
 
     const confettiTimer = setTimeout(() => {
-      // Centre burst
       confetti({
         particleCount: isGold ? 160 : 100,
         spread: 110,
@@ -66,7 +99,6 @@ export default function TrophyBanner({ achievements }: { achievements: Achieveme
         colors: c.confetti,
         zIndex: 9999,
       });
-      // Side cannons for gold achievements
       if (isGold) {
         confetti({ angle: 55,  spread: 60, particleCount: 70, startVelocity: 50, origin: { x: 0.05, y: 0.2 }, colors: c.confetti, zIndex: 9999 });
         confetti({ angle: 125, spread: 60, particleCount: 70, startVelocity: 50, origin: { x: 0.95, y: 0.2 }, colors: c.confetti, zIndex: 9999 });
@@ -87,18 +119,7 @@ export default function TrophyBanner({ achievements }: { achievements: Achieveme
     exitingRef.current = true;
     if (timerRef.current) clearTimeout(timerRef.current);
     setPhase('exit');
-    setTimeout(() => {
-      setCurrent(prev => {
-        if (prev) {
-          try {
-            const counts: Record<string, number> = JSON.parse(localStorage.getItem('gs_ach') ?? '{}');
-            counts[prev.id] = (counts[prev.id] ?? 0) + 1;
-            localStorage.setItem('gs_ach', JSON.stringify(counts));
-          } catch {}
-        }
-        return null;
-      });
-    }, ANIM_MS);
+    setTimeout(() => setCurrent(null), ANIM_MS);
   }
 
   if (!current) return null;
@@ -123,7 +144,6 @@ export default function TrophyBanner({ achievements }: { achievements: Achieveme
           <p className="text-xs text-gray-400 mt-0.5 truncate">{current.subtitle}</p>
         </div>
 
-        {/* Queue count badge */}
         {queue.length > 0 && (
           <span className="text-xs text-gray-600 shrink-0">+{queue.length} more</span>
         )}
@@ -134,7 +154,6 @@ export default function TrophyBanner({ achievements }: { achievements: Achieveme
         </button>
       </div>
 
-      {/* Timer bar — depletes over DISPLAY_MS */}
       {phase !== 'exit' && (
         <div className="h-0.5 bg-gray-800">
           <div className={`h-full origin-left ${c.bar}`}
