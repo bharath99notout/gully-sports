@@ -16,17 +16,29 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const { id } = await params;
   const supabase = await createClient();
   const { data: profile } = await supabase
-    .from('profiles').select('name').eq('id', id).single();
+    .from('profiles').select('name, avatar_url').eq('id', id).single();
 
   const playerName = (profile?.name ?? '').trim() || 'GullySports Player';
   const title = `${playerName} – GullySports`;
   const description = `Check out ${playerName}'s gully cricket, football and badminton profile on GullySports — caliber, stats and recent matches.`;
 
+  // Crawlers (WhatsApp/Twitter/Facebook) prefer the public /p/<id> route, so we
+  // point the OG image to its versioned URL. Versioning ensures stale previews
+  // refresh after avatar/name changes.
+  const ogVersion = `${profile?.avatar_url ?? 'noavatar'}|${profile?.name ?? ''}`
+    .split('').reduce((h, c) => ((h << 5) - h + c.charCodeAt(0)) | 0, 0);
+  const ogImage = {
+    url: `/p/${id}/opengraph-image?v=${Math.abs(ogVersion)}`,
+    width: 1200,
+    height: 630,
+    alt: `${playerName} on GullySports`,
+  };
+
   return {
     title,
     description,
-    openGraph: { title, description, type: 'profile', siteName: 'GullySports' },
-    twitter: { card: 'summary_large_image', title, description },
+    openGraph: { title, description, type: 'profile', siteName: 'GullySports', images: [ogImage] },
+    twitter: { card: 'summary_large_image', title, description, images: [ogImage.url] },
   };
 }
 
@@ -94,7 +106,11 @@ export default async function PublicPlayerPage({ params }: Props) {
   const hdrs = await headers();
   const host = hdrs.get('host') ?? '';
   const proto = hdrs.get('x-forwarded-proto') ?? (host.includes('localhost') ? 'http' : 'https');
-  const shareUrl = `${proto}://${host}/p/${id}`;
+  const origin = `${proto}://${host}`;
+  const shareUrl = `${origin}/p/${id}`;
+  const ogVersion = `${profile.avatar_url ?? 'noavatar'}|${profile.name ?? ''}`
+    .split('').reduce((h, c) => ((h << 5) - h + c.charCodeAt(0)) | 0, 0);
+  const ogImageUrl = `${origin}/p/${id}/opengraph-image?v=${Math.abs(ogVersion)}`;
   const sportLines = (['cricket', 'football', 'badminton', 'table_tennis'] as SportKey[])
     .filter(s => athleteData.sportStats[s].matches > 0)
     .map(s => {
@@ -120,7 +136,15 @@ export default async function PublicPlayerPage({ params }: Props) {
         >
           <ArrowLeft size={14} /> Players
         </Link>
-        <ShareButton text={shareText} url={shareUrl} title={`${playerName} – GullySports`} variant="inline" label="Share profile" />
+        <ShareButton
+          text={shareText}
+          url={shareUrl}
+          title={`${playerName} – GullySports`}
+          variant="inline"
+          label="Share profile"
+          imageUrl={ogImageUrl}
+          imageFilename={`${(playerName || 'gullysports').replace(/[^a-z0-9]+/gi, '-').toLowerCase()}-gullysports.png`}
+        />
       </div>
 
       <div className="-mb-2">

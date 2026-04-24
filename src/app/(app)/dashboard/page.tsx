@@ -1,10 +1,13 @@
 import { createClient } from '@/lib/supabase/server';
 import Link from 'next/link';
 import { Plus, Search } from 'lucide-react';
+import { headers } from 'next/headers';
 import AthleteCard from '@/components/AthleteCard';
 import AvatarUpload from '@/components/AvatarUpload';
 import FeedMatchCard from '@/components/FeedMatchCard';
+import ShareButton from '@/components/ShareButton';
 import { buildAthleteData, enrichStatsWithTeamNames } from '@/lib/athleteData';
+import { calcCaliber, getCaliberLabel, SportKey } from '@/lib/caliber';
 import TrophyBanner, { Achievement } from '@/components/TrophyBanner';
 
 export default async function DashboardPage() {
@@ -129,6 +132,28 @@ export default async function DashboardPage() {
     }
   }
 
+  // Share-my-profile setup — points share targets at the public /p/<id> route
+  // so anyone (logged-out included) can open the link, with a versioned OG
+  // image for fresh previews.
+  const hdrs = await headers();
+  const host = hdrs.get('host') ?? '';
+  const proto = hdrs.get('x-forwarded-proto') ?? (host.includes('localhost') ? 'http' : 'https');
+  const origin = `${proto}://${host}`;
+  const myShareUrl = `${origin}/p/${user!.id}`;
+  const myOgVersion = `${profile?.avatar_url ?? 'noavatar'}|${profile?.name ?? ''}`
+    .split('').reduce((h, c) => ((h << 5) - h + c.charCodeAt(0)) | 0, 0);
+  const myOgImageUrl = `${origin}/p/${user!.id}/opengraph-image?v=${Math.abs(myOgVersion)}`;
+  const mySportLines = (['cricket', 'football', 'badminton', 'table_tennis'] as SportKey[])
+    .filter(s => athleteData.sportStats[s].matches > 0)
+    .map(s => {
+      const score = calcCaliber(s, athleteData.sportStats[s]);
+      const label = getCaliberLabel(score);
+      const emoji = s === 'cricket' ? '🏏' : s === 'football' ? '⚽' : s === 'badminton' ? '🏸' : '🏓';
+      return `${emoji} ${label} (${score})`;
+    });
+  const myShareText = [`🏆 ${athleteData.name || 'My'} profile on GullySports`, ...mySportLines].join('\n');
+  const myImageFilename = `${(athleteData.name || 'gullysports').replace(/[^a-z0-9]+/gi, '-').toLowerCase()}-gullysports.png`;
+
   return (
     <div className="max-w-2xl mx-auto flex flex-col gap-6">
 
@@ -162,6 +187,23 @@ export default async function DashboardPage() {
         isOwn
         editSlot={<AvatarUpload userId={user!.id} />}
       />
+
+      {/* Share my profile — link preview + image attachment */}
+      <div className="bg-gray-900 border border-gray-800 rounded-xl px-4 py-3 flex items-center justify-between gap-3">
+        <div className="min-w-0">
+          <p className="text-sm font-semibold text-white">Share your profile</p>
+          <p className="text-[11px] text-gray-500 truncate">Send your card on WhatsApp — link preview or as a photo</p>
+        </div>
+        <ShareButton
+          text={myShareText}
+          url={myShareUrl}
+          title={`${athleteData.name || 'My'} – GullySports`}
+          variant="inline"
+          label="Share"
+          imageUrl={myOgImageUrl}
+          imageFilename={myImageFilename}
+        />
+      </div>
 
       {/* New match CTA */}
       <div className="grid grid-cols-2 gap-2">

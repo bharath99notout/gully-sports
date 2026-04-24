@@ -45,6 +45,24 @@ export default async function ProfileOgImage({
 
   const playerName = (profile?.name ?? '').trim() || 'GullySports Player';
   const initial = playerName[0]?.toUpperCase() ?? '?';
+  const avatarUrl = profile?.avatar_url || null;
+
+  // Pre-fetch the avatar bytes so satori (next/og) can embed them. If the URL
+  // is unreachable for any reason we silently fall back to the initial avatar
+  // — never let a broken image break the whole OG response.
+  let avatarDataUri: string | null = null;
+  if (avatarUrl) {
+    try {
+      const res = await fetch(avatarUrl, { cache: 'no-store' });
+      if (res.ok) {
+        const ct = res.headers.get('content-type') ?? 'image/jpeg';
+        const buf = Buffer.from(await res.arrayBuffer());
+        avatarDataUri = `data:${ct};base64,${buf.toString('base64')}`;
+      }
+    } catch {
+      avatarDataUri = null;
+    }
+  }
 
   const enriched = enrichStatsWithTeamNames(
     (stats ?? []) as unknown as Parameters<typeof enrichStatsWithTeamNames>[0],
@@ -119,11 +137,23 @@ export default async function ProfileOgImage({
               justifyContent: 'center',
               fontSize: 92,
               fontWeight: 900,
+              color: 'white',
               border: '8px solid #0b1220',
               boxShadow: '0 0 0 2px rgba(16,185,129,0.4)',
+              overflow: 'hidden',
             }}
           >
-            {initial}
+            {avatarDataUri ? (
+              // eslint-disable-next-line @next/next/no-img-element, jsx-a11y/alt-text
+              <img
+                src={avatarDataUri}
+                width={188}
+                height={188}
+                style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+              />
+            ) : (
+              initial
+            )}
           </div>
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10, maxWidth: 760 }}>
