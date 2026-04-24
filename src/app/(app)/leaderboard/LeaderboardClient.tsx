@@ -16,9 +16,13 @@ export interface LeaderboardEntry {
   runs: number;
   wickets: number;
   goals: number;
+  sports_played?: number; // only used in the "All" tab
 }
 
-const TABS: { key: SportKey; label: string; emoji: string }[] = [
+type TabKey = SportKey | 'all';
+
+const TABS: { key: TabKey; label: string; emoji: string }[] = [
+  { key: 'all',          label: 'All',       emoji: '🌟' },
   { key: 'cricket',      label: 'Cricket',   emoji: '🏏' },
   { key: 'football',     label: 'Football',  emoji: '⚽' },
   { key: 'badminton',    label: 'Badminton', emoji: '🏸' },
@@ -41,19 +45,27 @@ function rowColor(i: number) {
   return 'bg-gray-900/40 border-gray-800';
 }
 
-export default function LeaderboardClient({ cricket, football, badminton, table_tennis }: {
+type BadmintonSub = 'singles' | 'doubles';
+
+export default function LeaderboardClient({ cricket, football, badmintonSingles, badmintonDoubles, table_tennis, all }: {
   cricket: LeaderboardEntry[];
   football: LeaderboardEntry[];
-  badminton: LeaderboardEntry[];
+  badmintonSingles: LeaderboardEntry[];
+  badmintonDoubles: LeaderboardEntry[];
   table_tennis: LeaderboardEntry[];
+  all: LeaderboardEntry[];
 }) {
-  const [active, setActive] = useState<SportKey>('cricket');
-  const [mode, setMode] = useState<Mode>('skill');
+  const [active, setActive] = useState<TabKey>('all');
+  const [mode, setMode] = useState<Mode>('points');
+  const [badmintonSub, setBadmintonSub] = useState<BadmintonSub>('singles');
+
+  const badmintonActive = active === 'badminton' ? (badmintonSub === 'singles' ? badmintonSingles : badmintonDoubles) : [];
 
   const base =
+    active === 'all'          ? all :
     active === 'cricket'      ? cricket :
     active === 'football'     ? football :
-    active === 'badminton'    ? badminton :
+    active === 'badminton'    ? badmintonActive :
     table_tennis;
   const entries = [...base].sort((a, b) =>
     mode === 'skill' ? b.score - a.score : b.points - a.points
@@ -64,13 +76,18 @@ export default function LeaderboardClient({ cricket, football, badminton, table_
       {/* Sport tabs */}
       <div className="flex bg-gray-900 border border-gray-800 rounded-xl p-1">
         {TABS.map(t => {
+          const badmintonPlayerIds = new Set([
+            ...badmintonSingles.map(e => e.player_id),
+            ...badmintonDoubles.map(e => e.player_id),
+          ]);
           const count =
+            t.key === 'all'          ? all.length :
             t.key === 'cricket'      ? cricket.length :
             t.key === 'football'     ? football.length :
-            t.key === 'badminton'    ? badminton.length :
+            t.key === 'badminton'    ? badmintonPlayerIds.size :
             table_tennis.length;
           return (
-            <button key={t.key} onClick={() => setActive(t.key)}
+            <button key={t.key} onClick={() => { setActive(t.key); if (t.key === 'badminton') setBadmintonSub('singles'); }}
               className={`flex-1 py-2 text-sm font-semibold rounded-lg transition-colors ${
                 active === t.key ? 'bg-gray-700 text-white' : 'text-gray-500 hover:text-gray-300'
               }`}>
@@ -80,6 +97,27 @@ export default function LeaderboardClient({ cricket, football, badminton, table_
           );
         })}
       </div>
+
+      {/* Badminton: singles vs doubles use different match histories */}
+      {active === 'badminton' && (
+        <div className="flex bg-gray-900/80 border border-gray-800 rounded-xl p-1 gap-1">
+          {(['singles', 'doubles'] as const).map((sub) => (
+            <button
+              key={sub}
+              type="button"
+              onClick={() => setBadmintonSub(sub)}
+              className={`flex-1 py-2 text-xs font-semibold rounded-lg transition-colors ${
+                badmintonSub === sub ? 'bg-emerald-900/40 text-emerald-200 border border-emerald-800/50' : 'text-gray-500 hover:text-gray-300'
+              }`}
+            >
+              {sub === 'singles' ? '🧍 Singles' : '👥 Doubles'}
+              <span className="block text-[10px] font-normal text-gray-500 mt-0.5">
+                ({sub === 'singles' ? badmintonSingles.length : badmintonDoubles.length} ranked)
+              </span>
+            </button>
+          ))}
+        </div>
+      )}
 
       {/* Mode toggle — Skill vs Points */}
       <div className="flex items-center gap-2 text-xs">
@@ -104,13 +142,17 @@ export default function LeaderboardClient({ cricket, football, badminton, table_
       {entries.length === 0 ? (
         <div className="bg-gray-900 border border-gray-800 rounded-2xl p-8 text-center">
           <p className="text-3xl mb-2">{TABS.find(t => t.key === active)!.emoji}</p>
-          <p className="text-sm text-gray-500">No players have played {active} yet.</p>
+          <p className="text-sm text-gray-500">
+            {active === 'all' ? 'No players yet.' : `No players have played ${active.replace('_', ' ')} yet.`}
+          </p>
         </div>
       ) : (
         <div className="flex flex-col gap-2">
           {entries.map((e, i) => {
             const { text: col } = getCaliberColor(e.score);
-            const tierLabel = getCaliberTierLabel(e.score, [active]);
+            const tierLabel = active === 'all'
+              ? (e.sports_played ? `${e.sports_played} sport${e.sports_played > 1 ? 's' : ''} · ${e.wins}/${e.matches} wins` : 'No matches yet')
+              : getCaliberTierLabel(e.score, [active as SportKey]);
             return (
               <Link key={e.player_id} href={`/players/${e.player_id}`}
                 className={`flex items-center gap-3 px-3 py-2.5 rounded-xl border transition-colors hover:bg-gray-800/60 ${rowColor(i)}`}>

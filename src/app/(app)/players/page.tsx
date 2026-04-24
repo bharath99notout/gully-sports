@@ -1,27 +1,24 @@
 import { createClient } from '@/lib/supabase/server';
-import { Search } from 'lucide-react';
 import { AthleteCardMini } from '@/components/AthleteCard';
+import PlayerSearchWidget from '@/components/PlayerSearchWidget';
 import { buildAthleteData, enrichStatsWithTeamNames } from '@/lib/athleteData';
 
-export default async function PlayersPage({
-  searchParams,
-}: {
-  searchParams: Promise<{ q?: string }>;
-}) {
-  const { q } = await searchParams;
+export default async function PlayersPage() {
   const supabase = await createClient();
 
-  let query = supabase
-    .from('profiles')
-    .select(`
+  // Browse: list recent profiles. Active search lives in PlayerSearchWidget,
+  // which deep-links straight to /players/<id>, so we no longer need a
+  // server-side filter form here.
+  const selectCols = `
       id, name, avatar_url, created_at,
       player_match_stats(sport, runs_scored, wickets_taken, catches_taken, goals_scored, match_id, matches(winner_team_id, winner_team_name, team_a_id, team_b_id, team_a_name, team_b_name))
-    `)
-    .order('created_at', { ascending: false });
+    `;
 
-  if (q) query = query.ilike('name', `%${q}%`);
-
-  const { data: players } = await query.limit(50);
+  const { data } = await supabase
+    .from('profiles').select(selectCols)
+    .order('created_at', { ascending: false }).limit(50);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const players = (data ?? []) as Array<{ id: string; name: string; avatar_url: string | null; created_at: string; player_match_stats?: unknown[] }>;
 
   // Bulk-fetch match_players.team_name for every listed player so we can
   // attribute wins correctly in ad-hoc matches (no team UUIDs).
@@ -41,19 +38,12 @@ export default async function PlayersPage({
     <div className="max-w-2xl mx-auto flex flex-col gap-5">
       <div>
         <h1 className="text-2xl font-bold text-white">Players</h1>
-        <p className="text-sm text-gray-500 mt-0.5">Discover athletes on GullySports</p>
+        <p className="text-sm text-gray-500 mt-0.5">Search by name or mobile, or browse recent players below</p>
       </div>
 
-      <form method="GET" className="relative">
-        <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500" />
-        <input
-          name="q"
-          defaultValue={q}
-          placeholder="Search players…"
-          className="w-full bg-gray-900 border border-gray-800 rounded-xl pl-9 pr-4 py-2.5 text-sm text-white placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-emerald-500"
-        />
-      </form>
+      <PlayerSearchWidget />
 
+      <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-wider -mb-2">Recent players</h2>
       <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
         {(players ?? []).map((p) => {
           // Enrich each player's stats with their team_name per match

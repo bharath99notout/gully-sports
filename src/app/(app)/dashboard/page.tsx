@@ -1,6 +1,6 @@
 import { createClient } from '@/lib/supabase/server';
 import Link from 'next/link';
-import { Plus } from 'lucide-react';
+import { Plus, Search } from 'lucide-react';
 import AthleteCard from '@/components/AthleteCard';
 import AvatarUpload from '@/components/AvatarUpload';
 import FeedMatchCard from '@/components/FeedMatchCard';
@@ -140,6 +140,21 @@ export default async function DashboardPage() {
 
       {/* Trophy notifications */}
       {achievements.length > 0 && <TrophyBanner achievements={achievements} />}
+
+      {/* Find players lives under /players — keep home focused on your profile */}
+      <Link
+        href="/players"
+        className="flex items-center gap-3 bg-gray-900 border border-gray-800 hover:border-emerald-800/60 rounded-xl px-4 py-3 transition-colors group"
+      >
+        <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-emerald-950/50 text-emerald-400 border border-emerald-900/40 group-hover:bg-emerald-900/30">
+          <Search size={18} />
+        </span>
+        <div className="flex-1 min-w-0 text-left">
+          <p className="text-sm font-semibold text-white">Find players</p>
+          <p className="text-xs text-gray-500 truncate">Search by name or mobile on the Players page</p>
+        </div>
+        <span className="text-xs font-medium text-emerald-400 shrink-0">Open →</span>
+      </Link>
 
       {/* Athlete card hero */}
       <AthleteCard

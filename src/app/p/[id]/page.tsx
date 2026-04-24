@@ -2,13 +2,13 @@ import type { Metadata } from 'next';
 import { createClient } from '@/lib/supabase/server';
 import { notFound } from 'next/navigation';
 import Link from 'next/link';
-import { ArrowLeft } from 'lucide-react';
-import FeedMatchCard from '@/components/FeedMatchCard';
+import { Trophy, ArrowLeft } from 'lucide-react';
 import AthleteCard from '@/components/AthleteCard';
-import { buildAthleteData, enrichStatsWithTeamNames } from '@/lib/athleteData';
 import ShareButton from '@/components/ShareButton';
-import { headers } from 'next/headers';
+import FeedMatchCard from '@/components/FeedMatchCard';
+import { buildAthleteData, enrichStatsWithTeamNames } from '@/lib/athleteData';
 import { calcCaliber, getCaliberLabel, SportKey } from '@/lib/caliber';
+import { headers } from 'next/headers';
 
 interface Props { params: Promise<{ id: string }> }
 
@@ -22,15 +22,26 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const title = `${playerName} – GullySports`;
   const description = `Check out ${playerName}'s gully cricket, football and badminton profile on GullySports — caliber, stats and recent matches.`;
 
+  // Next 16 picks up the colocated opengraph-image.tsx automatically, but we
+  // also set it explicitly for clarity and so social crawlers always see it.
   return {
     title,
     description,
-    openGraph: { title, description, type: 'profile', siteName: 'GullySports' },
-    twitter: { card: 'summary_large_image', title, description },
+    openGraph: {
+      title,
+      description,
+      type: 'profile',
+      siteName: 'GullySports',
+    },
+    twitter: {
+      card: 'summary_large_image',
+      title,
+      description,
+    },
   };
 }
 
-export default async function PublicPlayerPage({ params }: Props) {
+export default async function PublicProfilePage({ params }: Props) {
   const { id } = await params;
   const supabase = await createClient();
 
@@ -38,12 +49,10 @@ export default async function PublicPlayerPage({ params }: Props) {
 
   const [{ data: profile }, { data: allStats }, { data: rawMatches }, { data: myMatchPlayers }] = await Promise.all([
     supabase.from('profiles').select('id, name, avatar_url, created_at').eq('id', id).single(),
-
     supabase
       .from('player_match_stats')
       .select('sport, runs_scored, wickets_taken, catches_taken, goals_scored, match_id, matches(winner_team_id, winner_team_name, team_a_id, team_b_id, team_a_name, team_b_name)')
       .eq('player_id', id),
-
     supabase
       .from('matches')
       .select(`
@@ -54,8 +63,7 @@ export default async function PublicPlayerPage({ params }: Props) {
       `)
       .neq('status', 'upcoming')
       .order('played_at', { ascending: false })
-      .limit(15),
-
+      .limit(10),
     supabase
       .from('match_players')
       .select('match_id, team_name')
@@ -65,7 +73,6 @@ export default async function PublicPlayerPage({ params }: Props) {
   if (!profile) notFound();
 
   const isOwnProfile = !!user && user.id === profile.id;
-  const playerName = (profile.name ?? '').trim() || 'Player';
 
   const enrichedStats = enrichStatsWithTeamNames(
     (allStats ?? []) as unknown as Parameters<typeof enrichStatsWithTeamNames>[0],
@@ -78,6 +85,7 @@ export default async function PublicPlayerPage({ params }: Props) {
   const playerMatchIds = new Set((allStats ?? []).map((s: { match_id: string }) => s.match_id));
   const feedMatches = (rawMatches ?? [])
     .filter((m: { id: string }) => playerMatchIds.has(m.id))
+    .slice(0, 5)
     .map((m: Record<string, unknown>) => ({
       ...m,
       player_performances: ((m.player_match_stats as { player_id: string; runs_scored: number; wickets_taken: number; catches_taken: number; goals_scored: number; profiles: { id: string; name: string } | null }[]) ?? []).map(s => ({
@@ -90,7 +98,7 @@ export default async function PublicPlayerPage({ params }: Props) {
       })),
     }));
 
-  // Build share text
+  // Share URL + text
   const hdrs = await headers();
   const host = hdrs.get('host') ?? '';
   const proto = hdrs.get('x-forwarded-proto') ?? (host.includes('localhost') ? 'http' : 'https');
@@ -103,51 +111,73 @@ export default async function PublicPlayerPage({ params }: Props) {
       const emoji = s === 'cricket' ? '🏏' : s === 'football' ? '⚽' : s === 'badminton' ? '🏸' : '🏓';
       return `${emoji} ${label} (${score})`;
     });
-  const shareText = [
-    `🏆 ${athleteData.name} on GullySports`,
-    ...sportLines,
-  ].join('\n');
+  const shareText = [`🏆 ${athleteData.name} on GullySports`, ...sportLines].join('\n');
 
   return (
-    <div className="max-w-2xl mx-auto flex flex-col gap-6">
+    <div className="min-h-screen bg-gray-950 text-white">
+      {/* Minimal public header — show player name when viewing someone else
+          so identity is obvious even after scrolling */}
+      <div className="bg-gray-950 border-b border-gray-800 sticky top-0 z-50">
+        <div className="max-w-2xl mx-auto px-4 h-14 flex items-center justify-between gap-3">
+          {user && !isOwnProfile ? (
+            <Link href="/players" className="flex items-center gap-2 min-w-0 group">
+              <ArrowLeft size={16} className="text-gray-400 group-hover:text-white shrink-0" />
+              <div className="min-w-0">
+                <p className="text-[10px] uppercase tracking-wider text-gray-500 leading-none">Profile</p>
+                <p className="text-sm font-bold text-white truncate leading-tight">
+                  {athleteData.name?.trim() || 'Player'}
+                </p>
+              </div>
+            </Link>
+          ) : (
+            <Link href="/" className="flex items-center gap-2 font-bold text-emerald-400 text-lg">
+              <Trophy size={20} /> GullySports
+            </Link>
+          )}
 
-      {/* Page header — makes whose profile this is unmistakable, even when
-          opened directly via /players/<id> (not via search) */}
-      <div className="flex items-center justify-between gap-3">
-        <Link
-          href="/players"
-          className="inline-flex items-center gap-1.5 text-xs text-gray-400 hover:text-white"
-        >
-          <ArrowLeft size={14} /> Players
-        </Link>
-        <ShareButton text={shareText} url={shareUrl} title={`${playerName} – GullySports`} variant="inline" label="Share profile" />
+          {user ? (
+            <Link href="/dashboard" className="text-xs text-emerald-400 hover:underline shrink-0">My profile →</Link>
+          ) : (
+            <Link href="/auth/signup" className="text-xs bg-emerald-600 hover:bg-emerald-500 text-white px-3 py-1.5 rounded-lg font-semibold shrink-0">
+              Join free
+            </Link>
+          )}
+        </div>
       </div>
 
-      <div className="-mb-2">
-        <p className="text-[11px] uppercase tracking-wider text-gray-500">
-          {isOwnProfile ? 'Your profile' : 'Player profile'}
-        </p>
-        <h1 className="text-2xl font-bold text-white truncate">{playerName}</h1>
-      </div>
+      <div className="max-w-2xl mx-auto px-4 py-6 flex flex-col gap-6">
+        <div className="flex justify-end">
+          <ShareButton text={shareText} url={shareUrl} title={`${athleteData.name} – GullySports`} variant="inline" label="Share profile" />
+        </div>
 
-      <AthleteCard athlete={athleteData} />
+        <AthleteCard athlete={athleteData} />
 
-      {feedMatches.length > 0 && (
-        <div>
-          <h2 className="text-sm font-semibold text-white mb-3">Match History</h2>
-          <div className="flex flex-col gap-3">
-            {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
-            {feedMatches.map((m: any) => <FeedMatchCard key={m.id} match={m} />)}
+        {feedMatches.length > 0 && (
+          <div>
+            <h2 className="text-sm font-semibold text-white mb-3">Recent Matches</h2>
+            <div className="flex flex-col gap-3">
+              {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
+              {feedMatches.map((m: any) => <FeedMatchCard key={m.id} match={m} />)}
+            </div>
           </div>
-        </div>
-      )}
+        )}
 
-      {feedMatches.length === 0 && (
-        <div className="bg-gray-900 border border-gray-800 rounded-2xl p-8 text-center">
-          <p className="text-3xl mb-2">🏟️</p>
-          <p className="text-gray-500 text-sm">No matches played yet.</p>
-        </div>
-      )}
+        {/* CTA for anonymous visitors */}
+        {!user && (
+          <div className="bg-gradient-to-br from-emerald-950/40 to-gray-900 border border-emerald-800/60 rounded-2xl p-5 text-center">
+            <p className="text-lg font-bold text-white mb-1">🏆 Score your own matches</p>
+            <p className="text-sm text-gray-400 mb-4">
+              Track cricket, football, badminton & table tennis. Build your player caliber.
+            </p>
+            <Link href="/auth/signup"
+              className="inline-block bg-emerald-600 hover:bg-emerald-500 text-white px-6 py-2.5 rounded-xl text-sm font-bold">
+              Join GullySports →
+            </Link>
+          </div>
+        )}
+
+        <p className="text-center text-[11px] text-gray-700 mt-4">Public profile · GullySports</p>
+      </div>
     </div>
   );
 }

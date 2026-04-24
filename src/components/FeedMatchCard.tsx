@@ -1,6 +1,7 @@
 'use client';
 
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { SportType, MatchStatus } from '@/types';
 
 interface PlayerPerf {
@@ -110,6 +111,8 @@ function TeamRow({ name, score, sport, isWinner, dim }: {
 // ── Card ──────────────────────────────────────────────────────────────────────
 
 export default function FeedMatchCard({ match }: { match: FeedMatch }) {
+  const router = useRouter();
+  const matchHref = `/matches/${match.id}`;
   const sA = match.match_scores.find(s => s.team_name === match.team_a_name);
   const sB = match.match_scores.find(s => s.team_name === match.team_b_name);
 
@@ -154,7 +157,17 @@ export default function FeedMatchCard({ match }: { match: FeedMatch }) {
     .sort((a, b) => impactScore(b) - impactScore(a))[0];
 
   return (
-    <Link href={`/matches/${match.id}`}>
+    // Outer wrapper is a div (not <a>) because the Player-of-the-Match block
+    // contains its own <Link>, and nesting <a> inside <a> is invalid HTML and
+    // triggers a React hydration error.
+    <div
+      role="link"
+      tabIndex={0}
+      onClick={() => router.push(matchHref)}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); router.push(matchHref); }
+      }}
+    >
       <div className="bg-gray-900 border border-gray-800 hover:border-gray-700 rounded-2xl overflow-hidden transition-colors cursor-pointer">
 
         {/* Header bar */}
@@ -223,6 +236,6 @@ export default function FeedMatchCard({ match }: { match: FeedMatch }) {
           </Link>
         )}
       </div>
-    </Link>
+    </div>
   );
 }

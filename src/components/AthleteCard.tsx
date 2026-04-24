@@ -94,7 +94,7 @@ export default function AthleteCard({ athlete, compact = false, isOwn = false, e
                 className={`rounded-full border-4 border-gray-900 object-cover ${compact ? 'w-16 h-16' : 'w-20 h-20'}`} />
             ) : (
               <div className={`rounded-full border-4 border-gray-900 bg-gradient-to-br from-emerald-500 to-teal-700 flex items-center justify-center font-bold text-white ${compact ? 'w-16 h-16 text-2xl' : 'w-20 h-20 text-3xl'}`}>
-                {name[0].toUpperCase()}
+                {name?.trim()?.[0]?.toUpperCase() ?? '?'}
               </div>
             )}
             {isOwn && editSlot && (
@@ -226,7 +226,7 @@ export function AthleteCardMini({ athlete }: { athlete: AthleteData }) {
               className="w-12 h-12 rounded-full border-2 border-gray-800 object-cover" />
           ) : (
             <div className="w-12 h-12 rounded-full bg-gradient-to-br from-emerald-500 to-teal-700 flex items-center justify-center text-xl font-bold text-white border-2 border-gray-800">
-              {athlete.name[0].toUpperCase()}
+              {athlete.name?.trim()?.[0]?.toUpperCase() ?? '?'}
             </div>
           )}
           {overallScore > 0 && (
@@ -234,7 +234,7 @@ export function AthleteCardMini({ athlete }: { athlete: AthleteData }) {
           )}
         </div>
 
-        <p className="text-sm font-bold text-white truncate">{athlete.name}</p>
+        <p className="text-sm font-bold text-white truncate">{athlete.name?.trim() || 'Unnamed'}</p>
         <p className="text-xs text-gray-600 mt-0.5 truncate">{tagline}</p>
 
         <div className="flex flex-col gap-1.5 mt-3">

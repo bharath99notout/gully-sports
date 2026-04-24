@@ -44,6 +44,8 @@ export default async function LeaderboardPage() {
 
   // Map: `${match_id}__${player_id}` → team_name (to attribute wins)
   const playerTeamMap = new Map<string, string>();
+  /** Badminton: exactly 1 player per side → singles; any side with 2+ → doubles */
+  const badmintonFormatByMatch = new Map<string, 'singles' | 'doubles'>();
   if (matchIds.length > 0) {
     const { data: mp } = await supabase
       .from('match_players')
@@ -51,6 +53,20 @@ export default async function LeaderboardPage() {
       .in('match_id', matchIds);
     for (const row of mp ?? []) {
       playerTeamMap.set(`${row.match_id}__${row.player_id}`, row.team_name);
+    }
+    const badmintonMatchIds = new Set(raw.filter(r => r.sport === 'badminton').map(r => r.match_id));
+    const playersPerTeam = new Map<string, Map<string, number>>(); // match_id → team_name → count
+    for (const row of mp ?? []) {
+      if (!badmintonMatchIds.has(row.match_id)) continue;
+      if (!playersPerTeam.has(row.match_id)) playersPerTeam.set(row.match_id, new Map());
+      const tm = playersPerTeam.get(row.match_id)!;
+      tm.set(row.team_name, (tm.get(row.team_name) ?? 0) + 1);
+    }
+    for (const mid of badmintonMatchIds) {
+      const tm = playersPerTeam.get(mid);
+      const counts = tm ? [...tm.values()].filter(c => c > 0).sort((a, b) => a - b) : [];
+      const singles = counts.length >= 2 && counts.every(c => c === 1);
+      badmintonFormatByMatch.set(mid, singles ? 'singles' : 'doubles');
     }
   }
 
@@ -73,30 +89,46 @@ export default async function LeaderboardPage() {
     }
   }
 
-  // Aggregate
-  const agg = new Map<string, {
+  type AggRow = {
     player_id: string;
     name: string;
     avatar_url: string | null;
     sport: SportKey;
     stat: SportStat;
     perMatch: PerMatchStat[];
-  }>();
+  };
 
-  for (const r of raw) {
-    if (!r.profiles) continue;
-    const key = `${r.player_id}__${r.sport}`;
-    if (!agg.has(key)) {
-      agg.set(key, {
+  // Combined per (player, sport) — one badminton bucket per player for the "All" tab
+  const agg = new Map<string, AggRow>();
+  // Badminton only: separate career stats for singles vs doubles matches
+  const aggBadmintonSingles = new Map<string, AggRow>();
+  const aggBadmintonDoubles = new Map<string, AggRow>();
+
+  function ensureAggRow(map: Map<string, AggRow>, key: string, r: RawStat): AggRow {
+    if (!map.has(key)) {
+      map.set(key, {
         player_id: r.player_id,
-        name: r.profiles.name,
-        avatar_url: r.profiles.avatar_url,
+        name: r.profiles!.name,
+        avatar_url: r.profiles!.avatar_url,
         sport: r.sport,
         stat: { matches: 0, wins: 0, runs: 0, wickets: 0, catches: 0, goals: 0 },
         perMatch: [],
       });
     }
-    const a = agg.get(key)!;
+    return map.get(key)!;
+  }
+
+  for (const r of raw) {
+    if (!r.profiles) continue;
+    const combinedKey = `${r.player_id}__${r.sport}`;
+    const targets: { map: Map<string, AggRow>; key: string }[] = [{ map: agg, key: combinedKey }];
+    if (r.sport === 'badminton') {
+      const fmt = badmintonFormatByMatch.get(r.match_id) ?? 'doubles';
+      targets.push({
+        map: fmt === 'singles' ? aggBadmintonSingles : aggBadmintonDoubles,
+        key: r.player_id,
+      });
+    }
 
     // Determine win for THIS match
     const winner = r.matches?.winner_team_name
@@ -105,15 +137,6 @@ export default async function LeaderboardPage() {
     const playerTeam = playerTeamMap.get(`${r.match_id}__${r.player_id}`);
     const won = !!(winner && playerTeam && winner === playerTeam);
 
-    // Aggregate totals
-    a.stat.matches += 1;
-    if (won) a.stat.wins += 1;
-    a.stat.runs    += r.runs_scored    ?? 0;
-    a.stat.wickets += r.wickets_taken  ?? 0;
-    a.stat.catches += r.catches_taken  ?? 0;
-    a.stat.goals   += r.goals_scored   ?? 0;
-
-    // Racket sports (badminton / table tennis): compute sets_won + clean_sweeps
     let setsWon = 0, cleanSweeps = 0;
     if ((r.sport === 'badminton' || r.sport === 'table_tennis') && playerTeam) {
       const teams = matchTeamNames.get(r.match_id);
@@ -128,7 +151,7 @@ export default async function LeaderboardPage() {
       }
     }
 
-    a.perMatch.push({
+    const perMatch: PerMatchStat = {
       runs_scored:   r.runs_scored   ?? 0,
       wickets_taken: r.wickets_taken ?? 0,
       catches_taken: r.catches_taken ?? 0,
@@ -136,14 +159,45 @@ export default async function LeaderboardPage() {
       sets_won:      setsWon,
       clean_sweeps:  cleanSweeps,
       won,
-    });
+    };
+
+    for (const { map, key } of targets) {
+      const a = ensureAggRow(map, key, r);
+      a.stat.matches += 1;
+      if (won) a.stat.wins += 1;
+      a.stat.runs    += r.runs_scored    ?? 0;
+      a.stat.wickets += r.wickets_taken  ?? 0;
+      a.stat.catches += r.catches_taken  ?? 0;
+      a.stat.goals   += r.goals_scored   ?? 0;
+      a.perMatch.push(perMatch);
+    }
   }
 
   // Build entries
   const cricket: LeaderboardEntry[] = [];
   const football: LeaderboardEntry[] = [];
-  const badminton: LeaderboardEntry[] = [];
+  const badmintonSingles: LeaderboardEntry[] = [];
+  const badmintonDoubles: LeaderboardEntry[] = [];
   const table_tennis: LeaderboardEntry[] = [];
+
+  // Aggregate per player across sports for the "All" leaderboard
+  const allByPlayer = new Map<string, {
+    player_id: string;
+    name: string;
+    avatar_url: string | null;
+    totalPoints: number;
+    scoreSum: number;
+    scoreCount: number;
+    matches: number;
+    wins: number;
+    activeSports: Set<string>;
+  }>();
+
+  function pushEntry(a: AggRow, entry: LeaderboardEntry) {
+    if (a.sport === 'cricket')       cricket.push(entry);
+    if (a.sport === 'football')      football.push(entry);
+    if (a.sport === 'table_tennis')  table_tennis.push(entry);
+  }
 
   for (const a of agg.values()) {
     const score  = calcCaliber(a.sport, a.stat);
@@ -160,17 +214,81 @@ export default async function LeaderboardPage() {
       wickets: a.stat.wickets,
       goals: a.stat.goals,
     };
-    if (a.sport === 'cricket')      cricket.push(entry);
-    if (a.sport === 'football')     football.push(entry);
-    if (a.sport === 'badminton')    badminton.push(entry);
-    if (a.sport === 'table_tennis') table_tennis.push(entry);
+    if (a.sport !== 'badminton') pushEntry(a, entry);
+
+    // Roll into "All" aggregate
+    if (!allByPlayer.has(a.player_id)) {
+      allByPlayer.set(a.player_id, {
+        player_id: a.player_id, name: a.name, avatar_url: a.avatar_url,
+        totalPoints: 0, scoreSum: 0, scoreCount: 0, matches: 0, wins: 0,
+        activeSports: new Set(),
+      });
+    }
+    const p = allByPlayer.get(a.player_id)!;
+    p.totalPoints += points;
+    if (score > 0) { p.scoreSum += score; p.scoreCount += 1; }
+    p.matches += a.stat.matches;
+    p.wins += a.stat.wins;
+    p.activeSports.add(a.sport);
   }
+
+  for (const a of aggBadmintonSingles.values()) {
+    const score  = calcCaliber(a.sport, a.stat);
+    const points = calcSportPoints(a.sport, a.perMatch);
+    badmintonSingles.push({
+      player_id: a.player_id,
+      name: a.name,
+      avatar_url: a.avatar_url,
+      score,
+      points,
+      matches: a.stat.matches,
+      wins: a.stat.wins,
+      runs: a.stat.runs,
+      wickets: a.stat.wickets,
+      goals: a.stat.goals,
+    });
+  }
+  for (const a of aggBadmintonDoubles.values()) {
+    const score  = calcCaliber(a.sport, a.stat);
+    const points = calcSportPoints(a.sport, a.perMatch);
+    badmintonDoubles.push({
+      player_id: a.player_id,
+      name: a.name,
+      avatar_url: a.avatar_url,
+      score,
+      points,
+      matches: a.stat.matches,
+      wins: a.stat.wins,
+      runs: a.stat.runs,
+      wickets: a.stat.wickets,
+      goals: a.stat.goals,
+    });
+  }
+
+  const all: LeaderboardEntry[] = Array.from(allByPlayer.values()).map(p => ({
+    player_id: p.player_id,
+    name: p.name,
+    avatar_url: p.avatar_url,
+    score:   p.scoreCount > 0 ? Math.round(p.scoreSum / p.scoreCount) : 0,
+    points:  p.totalPoints,
+    matches: p.matches,
+    wins:    p.wins,
+    runs: 0, wickets: 0, goals: 0,
+    sports_played: p.activeSports.size,
+  }));
 
   return (
     <div className="max-w-2xl mx-auto">
       <h1 className="text-2xl font-bold text-white mb-1">🏆 Leaderboard</h1>
       <p className="text-sm text-gray-500 mb-5">Top players ranked by skill or career points</p>
-      <LeaderboardClient cricket={cricket} football={football} badminton={badminton} table_tennis={table_tennis} />
+      <LeaderboardClient
+        cricket={cricket}
+        football={football}
+        badmintonSingles={badmintonSingles}
+        badmintonDoubles={badmintonDoubles}
+        table_tennis={table_tennis}
+        all={all}
+      />
     </div>
   );
 }

@@ -27,9 +27,24 @@ export default function Navbar() {
   }
 
   async function shareApp() {
-    const url = typeof window !== 'undefined' ? window.location.origin : '';
-    const text = '🏆 Score your gully cricket, football & badminton matches on GullySports. Build your career stats!';
-    if (typeof navigator !== 'undefined' && 'share' in navigator) {
+    if (typeof window === 'undefined') return;
+
+    // If logged in, share the user's public profile so receivers land on
+    // a meaningful page (stats, caliber) rather than the landing page.
+    const supabase = createClient();
+    const { data: { user } } = await supabase.auth.getUser();
+
+    let url = window.location.origin;
+    let text = '🏆 Score your gully cricket, football, badminton & table tennis matches on GullySports. Build your career stats!';
+
+    if (user) {
+      const { data: profile } = await supabase
+        .from('profiles').select('name').eq('id', user.id).single();
+      url = `${window.location.origin}/p/${user.id}`;
+      text = `🏆 Check out my GullySports profile${profile?.name ? ` — ${profile.name}` : ''}. Join me and score your matches!`;
+    }
+
+    if ('share' in navigator) {
       try { await navigator.share({ title: 'GullySports', text, url }); return; }
       catch { /* fall through */ }
     }
@@ -89,16 +104,11 @@ export default function Navbar() {
           <button
             className="p-2 text-gray-400"
             onClick={() => setMenuOpen(!menuOpen)}
+            aria-label={menuOpen ? 'Close menu' : 'Open menu'}
           >
             {menuOpen ? <X size={20} /> : <Menu size={20} />}
           </button>
         </div>
-        <button
-          className="md:hidden text-gray-400"
-          onClick={() => setMenuOpen(!menuOpen)}
-        >
-          {menuOpen ? <X size={20} /> : <Menu size={20} />}
-        </button>
       </div>
 
       {/* Mobile menu */}
