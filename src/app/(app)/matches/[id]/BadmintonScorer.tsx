@@ -10,6 +10,7 @@ interface Props {
   scoreA: MatchScore | null;
   scoreB: MatchScore | null;
   canEdit: boolean;
+  allowDisputeRecheck?: boolean;
   matchPlayers: MatchPlayer[];
 }
 
@@ -31,9 +32,17 @@ function detectWinner(setsA: number[], setsB: number[], target: number, bestOf: 
   return null;
 }
 
-export default function BadmintonScorer({ match, scoreA, scoreB, canEdit, matchPlayers: initPlayers }: Props) {
+export default function BadmintonScorer({
+  match,
+  scoreA,
+  scoreB,
+  canEdit,
+  allowDisputeRecheck = false,
+  matchPlayers: initPlayers,
+}: Props) {
   const supabase = createClient();
   const isLive = match.status === 'live';
+  const scoringActive = isLive || (match.status === 'completed' && allowDisputeRecheck);
   const totalSets = match.badminton_sets ?? 3;
   const target    = match.badminton_target_points ?? 21;
 
@@ -83,7 +92,7 @@ export default function BadmintonScorer({ match, scoreA, scoreB, canEdit, matchP
   }
 
   async function updatePoint(team: 'a' | 'b', idx: number, delta: number) {
-    if (!canEdit || !isLive || busy) return;
+    if (!canEdit || !scoringActive || busy) return;
     setBusy(true);
     const current = team === 'a' ? setsA : setsB;
     const next = [...current];
@@ -216,8 +225,15 @@ export default function BadmintonScorer({ match, scoreA, scoreB, canEdit, matchP
   return (
     <div className="flex flex-col gap-4">
 
+      {allowDisputeRecheck && (
+        <div className="rounded-xl border border-amber-700/50 bg-amber-950/35 px-3 py-2.5 text-sm text-amber-100">
+          <span className="font-semibold text-amber-300">Disputed — scorer recheck.</span>{' '}
+          Fix set scores or roster below; saving updates clears disputes and re-opens confirmations.
+        </div>
+      )}
+
       {/* ── Player management — visible when live/editable and any side empty ── */}
-      {canEdit && isLive && (playersA.length === 0 || playersB.length === 0) && (
+      {canEdit && scoringActive && (playersA.length === 0 || playersB.length === 0) && (
         <div className="bg-amber-950/30 border border-amber-800/50 rounded-xl p-3">
           <p className="text-xs text-amber-300 font-semibold">
             ⚠️ Add at least one player to each side before scoring.
@@ -230,7 +246,11 @@ export default function BadmintonScorer({ match, scoreA, scoreB, canEdit, matchP
         <div className="px-4 py-2.5 border-b border-gray-800 bg-gray-800/40 flex items-center justify-between">
           <div>
             <p className="text-[10px] text-gray-500 font-semibold uppercase tracking-widest">
-              {match.status === 'completed' ? 'Final Result' : isLive && canScore ? `Live · Set ${activeSet + 1}` : 'Setup'}
+              {match.status === 'completed' && !allowDisputeRecheck
+                ? 'Final Result'
+                : scoringActive && canScore
+                  ? `Live · Set ${activeSet + 1}`
+                  : 'Setup'}
             </p>
             <p className="text-xs text-gray-400 mt-0.5">
               Game to {target} · {totalSets === 1 ? '1 set' : `Best of ${totalSets}`}
@@ -251,7 +271,7 @@ export default function BadmintonScorer({ match, scoreA, scoreB, canEdit, matchP
           <span className="text-[10px] text-gray-600 font-semibold uppercase">Players</span>
           {Array.from({ length: totalSets }, (_, i) => (
             <span key={i} className={`text-[10px] text-center font-semibold uppercase ${
-              i === activeSet && isLive ? 'text-emerald-400' : 'text-gray-600'
+              i === activeSet && scoringActive ? 'text-emerald-400' : 'text-gray-600'
             }`}>
               Set {i + 1}
             </span>
@@ -263,7 +283,7 @@ export default function BadmintonScorer({ match, scoreA, scoreB, canEdit, matchP
           teamName={match.team_a_name} teamPlayers={playersA}
           sets={setsA} target={target}
           isWinner={winnerIdx === 0} dim={winnerIdx === 1}
-          activeSet={activeSet} isLive={isLive} canEdit={canEdit}
+          activeSet={activeSet} scoringActive={scoringActive} canEdit={canEdit}
           onUpdate={(idx, d) => updatePoint('a', idx, d)}
           onRemovePlayer={removePlayer}
           onAddClick={() => { setAddTeam(match.team_a_name); setSearchQ(''); setSearchRes([]); }}
@@ -278,7 +298,7 @@ export default function BadmintonScorer({ match, scoreA, scoreB, canEdit, matchP
           teamName={match.team_b_name} teamPlayers={playersB}
           sets={setsB} target={target}
           isWinner={winnerIdx === 1} dim={winnerIdx === 0}
-          activeSet={activeSet} isLive={isLive} canEdit={canEdit}
+          activeSet={activeSet} scoringActive={scoringActive} canEdit={canEdit}
           onUpdate={(idx, d) => updatePoint('b', idx, d)}
           onRemovePlayer={removePlayer}
           onAddClick={() => { setAddTeam(match.team_b_name); setSearchQ(''); setSearchRes([]); }}
@@ -290,7 +310,7 @@ export default function BadmintonScorer({ match, scoreA, scoreB, canEdit, matchP
       </div>
 
       {/* ── Add player modal ────────────────────────────────────────────────── */}
-      {canEdit && addTeam && (
+      {canEdit && scoringActive && addTeam && (
         <div className="bg-gray-900 border border-gray-800 rounded-xl p-4">
           <div className="flex items-center justify-between mb-2">
             <p className="text-sm text-gray-300">
@@ -376,7 +396,7 @@ interface RowProps {
   isWinner: boolean;
   dim: boolean;
   activeSet: number;
-  isLive: boolean;
+  scoringActive: boolean;
   canEdit: boolean;
   onUpdate: (idx: number, delta: number) => void;
   onRemovePlayer: (mp: MatchPlayer) => void;
@@ -388,7 +408,7 @@ interface RowProps {
 }
 
 function BadmintonRow({
-  teamName, teamPlayers, sets, target, isWinner, dim, activeSet, isLive, canEdit,
+  teamName, teamPlayers, sets, target, isWinner, dim, activeSet, scoringActive, canEdit,
   onUpdate, onRemovePlayer, onAddClick, editCell, onStartEdit, onFinishEdit, editInputRef,
 }: RowProps) {
   const display = teamLabel(teamName);
@@ -408,7 +428,7 @@ function BadmintonRow({
             {display}
           </p>
           {teamPlayers.length === 0 ? (
-            canEdit && isLive ? (
+            canEdit && scoringActive ? (
               <button onClick={onAddClick}
                 className="text-xs text-emerald-400 hover:underline mt-0.5 flex items-center gap-1">
                 <UserPlus size={11} /> Add player
@@ -423,7 +443,7 @@ function BadmintonRow({
                   <span className={`text-sm font-bold truncate ${dim ? 'text-gray-500' : 'text-white'}`}>
                     {p.name}
                   </span>
-                  {canEdit && isLive && (
+                  {canEdit && scoringActive && (
                     <button onClick={() => onRemovePlayer(p)}
                       className="text-gray-700 hover:text-red-400 shrink-0">
                       <X size={10} />
@@ -431,7 +451,7 @@ function BadmintonRow({
                   )}
                 </div>
               ))}
-              {canEdit && isLive && teamPlayers.length < 2 && (
+              {canEdit && scoringActive && teamPlayers.length < 2 && (
                 <button onClick={onAddClick}
                   className="text-[11px] text-emerald-500 hover:underline flex items-center gap-0.5 mt-0.5">
                   <UserPlus size={10} /> Add teammate (doubles)
@@ -448,7 +468,7 @@ function BadmintonRow({
         const oppPts = (sets as unknown as { _opp?: number[] })._opp?.[i] ?? 0; // unused but safe
         void oppPts;
         const setWon = pts >= target;
-        const isActive = i === activeSet && isLive;
+        const isActive = i === activeSet && scoringActive;
         const isEditing = editCell === i;
         return (
           <div key={i} className="flex flex-col items-center gap-1">
@@ -472,7 +492,7 @@ function BadmintonRow({
                 {pts}
               </button>
             )}
-            {canEdit && isLive && isActive && !isWinner && !isEditing && (
+            {canEdit && scoringActive && isActive && !isWinner && !isEditing && (
               <div className="flex gap-1">
                 <button onClick={() => onUpdate(i, -1)} disabled={pts === 0}
                   className="w-6 h-6 rounded bg-gray-800 hover:bg-gray-700 disabled:opacity-30 text-white flex items-center justify-center">

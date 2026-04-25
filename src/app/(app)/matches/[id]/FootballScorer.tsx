@@ -11,9 +11,18 @@ interface Props {
   scoreA: MatchScore | null;
   scoreB: MatchScore | null;
   canEdit: boolean;
+  allowDisputeRecheck?: boolean;
 }
 
-function GoalCard({ score, canEdit, isLive }: { score: MatchScore; canEdit: boolean; isLive: boolean }) {
+function GoalCard({
+  score,
+  canEdit,
+  scoringActive,
+}: {
+  score: MatchScore;
+  canEdit: boolean;
+  scoringActive: boolean;
+}) {
   const router = useRouter();
   const [goals, setGoals] = useState(score.goals ?? 0);
   const [saving, setSaving] = useState(false);
@@ -31,7 +40,7 @@ function GoalCard({ score, canEdit, isLive }: { score: MatchScore; canEdit: bool
     <Card padding="md" className="text-center">
       <h3 className="font-semibold text-white mb-3">{score.team_name}</h3>
       <div className="text-5xl font-bold text-white mb-4">{goals}</div>
-      {canEdit && isLive && (
+      {canEdit && scoringActive && (
         <div className="flex items-center justify-center gap-3">
           <button
             onClick={() => updateGoals(Math.max(0, goals - 1))}
@@ -53,12 +62,27 @@ function GoalCard({ score, canEdit, isLive }: { score: MatchScore; canEdit: bool
   );
 }
 
-export default function FootballScorer({ match, scoreA, scoreB, canEdit }: Props) {
+export default function FootballScorer({
+  match,
+  scoreA,
+  scoreB,
+  canEdit,
+  allowDisputeRecheck = false,
+}: Props) {
   const isLive = match.status === 'live';
+  const scoringActive = isLive || (match.status === 'completed' && allowDisputeRecheck);
   return (
-    <div className="grid grid-cols-2 gap-3">
-      {scoreA && <GoalCard score={scoreA} canEdit={canEdit} isLive={isLive} />}
-      {scoreB && <GoalCard score={scoreB} canEdit={canEdit} isLive={isLive} />}
+    <div className="flex flex-col gap-3">
+      {allowDisputeRecheck && (
+        <p className="text-sm text-amber-200 bg-amber-950/35 border border-amber-800/50 rounded-xl px-3 py-2">
+          <span className="font-semibold text-amber-300">Disputed — scorer recheck.</span>{' '}
+          Adjust goals below; saving updates clears disputes and re-opens confirmations.
+        </p>
+      )}
+      <div className="grid grid-cols-2 gap-3">
+        {scoreA && <GoalCard score={scoreA} canEdit={canEdit} scoringActive={scoringActive} />}
+        {scoreB && <GoalCard score={scoreB} canEdit={canEdit} scoringActive={scoringActive} />}
+      </div>
     </div>
   );
 }

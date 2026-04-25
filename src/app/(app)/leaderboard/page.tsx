@@ -18,6 +18,7 @@ interface RawStat {
     team_b_id: string | null;
     team_a_name: string;
     team_b_name: string;
+    confirmation_state?: string | null;
   } | null;
 }
 
@@ -35,11 +36,12 @@ export default async function LeaderboardPage() {
     .select(`
       player_id, sport, runs_scored, wickets_taken, catches_taken, goals_scored, match_id,
       profiles(id, name, avatar_url),
-      matches(winner_team_id, winner_team_name, team_a_id, team_b_id, team_a_name, team_b_name)
+      matches(winner_team_id, winner_team_name, team_a_id, team_b_id, team_a_name, team_b_name, confirmation_state)
     `)
     .returns<RawStat[]>();
 
-  const raw = data ?? [];
+  // Phase 1: leaderboard only counts fully confirmed matches (6h auto-confirm OK).
+  const raw = (data ?? []).filter(r => r.matches?.confirmation_state === 'confirmed');
   const matchIds = Array.from(new Set(raw.map(r => r.match_id)));
 
   // Map: `${match_id}__${player_id}` → team_name (to attribute wins)

@@ -8,6 +8,7 @@ interface Props {
   scoreA: MatchScore | null;
   scoreB: MatchScore | null;
   canEdit: boolean;
+  allowDisputeRecheck?: boolean;
   matchPlayers: MatchPlayer[];
 }
 

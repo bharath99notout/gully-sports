@@ -1,14 +1,28 @@
 import { createClient } from '@/lib/supabase/server';
 import { notFound } from 'next/navigation';
+import dynamic from 'next/dynamic';
 import SportBadge from '@/components/SportBadge';
-import CricketScorer from './CricketScorer';
-import FootballScorer from './FootballScorer';
-import BadmintonScorer from './BadmintonScorer';
-import TableTennisScorer from './TableTennisScorer';
 import MatchControls from './MatchControls';
 import ShareButton from '@/components/ShareButton';
+import MatchConfirmationPanel from './MatchConfirmationPanel';
+import { maybeSweepAutoConfirms } from '@/lib/matchConfirmationServer';
+import type { ConfirmationState } from '@/lib/matchConfirmation';
 import { Match, MatchScore, MatchPlayer, CricketPlayerStat } from '@/types';
 import { headers } from 'next/headers';
+import type { SportKey } from '@/lib/caliber';
+import { buildMatchPlayerImpactRows } from '@/lib/matchImpact';
+import MatchPlayerImpactSection from './MatchPlayerImpactSection';
+import AdminDeleteMatchButton from './AdminDeleteMatchButton';
+
+// Code-split the per-sport scorers so each match page only ships the JS for
+// the sport actually being shown. Loading fallbacks keep the layout stable.
+const ScorerSkeleton = () => (
+  <div className="bg-gray-900 border border-gray-800 rounded-2xl p-6 animate-pulse h-64" />
+);
+const CricketScorer      = dynamic(() => import('./CricketScorer'),      { loading: ScorerSkeleton });
+const FootballScorer     = dynamic(() => import('./FootballScorer'),     { loading: ScorerSkeleton });
+const BadmintonScorer    = dynamic(() => import('./BadmintonScorer'),    { loading: ScorerSkeleton });
+const TableTennisScorer  = dynamic(() => import('./TableTennisScorer'),  { loading: ScorerSkeleton });
 
 interface Props {
   params: Promise<{ id: string }>;
@@ -17,6 +31,10 @@ interface Props {
 export default async function MatchDetailPage({ params }: Props) {
   const { id } = await params;
   const supabase = await createClient();
+
+  // Promote any matches whose 6h auto-confirm window expired. Cheap (rate-
+  // limited + partial index) and runs naturally as users browse.
+  await maybeSweepAutoConfirms();
 
   const { data: match } = await supabase
     .from('matches')
@@ -27,55 +45,68 @@ export default async function MatchDetailPage({ params }: Props) {
   if (!match) notFound();
 
   const { data: { user } } = await supabase.auth.getUser();
-  const canEdit = user?.id === match.created_by;
+  const scorerId: string | null = match.scored_by ?? match.created_by ?? null;
+  const viewerIsScorer = !!user && user.id === scorerId;
+  const confirmationState: ConfirmationState =
+    (match.confirmation_state as ConfirmationState | null) ?? 'pending';
+  /** Who may change scores: match creator or the designated scorer (often the same). */
+  const canEditScores = !!user && (user.id === match.created_by || viewerIsScorer);
+  /** Start / end match lifecycle stays with whoever created the fixture. */
+  const canControlLifecycle = !!user && user.id === match.created_by;
+  /** After a dispute, only the scorer can re-open the scorecard to fix data (DB trigger resets confirmations). */
+  const allowDisputeRecheck =
+    match.status === 'completed'
+    && confirmationState === 'disputed'
+    && viewerIsScorer;
+
+  // Fetch confirmations, scorer, roster, all stat rows, admin flag — one roundtrip batch.
+  const [{ data: confRows }, { data: scorerRow }, { data: mp }, { data: allPms }, { data: adminProfile }] = await Promise.all([
+    supabase
+      .from('match_confirmations')
+      .select('player_id, status, disputed_reason')
+      .eq('match_id', id),
+    scorerId
+      ? supabase.from('profiles').select('name').eq('id', scorerId).single()
+      : Promise.resolve({ data: null }),
+    supabase
+      .from('match_players')
+      .select('id, match_id, player_id, team_name, profiles(name)')
+      .eq('match_id', id),
+    supabase
+      .from('player_match_stats')
+      .select('*, profiles(id, name)')
+      .eq('match_id', id),
+    user
+      ? supabase.from('profiles').select('is_admin').eq('id', user.id).single()
+      : Promise.resolve({ data: null }),
+  ]);
+  const confByPlayer = new Map(
+    (confRows ?? []).map(c => [c.player_id, c]),
+  );
+
+  // Explicit boolean — only true when column exists and is true (never show delete UI otherwise).
+  const viewerIsAdmin =
+    !!user
+    && adminProfile != null
+    && (adminProfile as { is_admin?: boolean | null }).is_admin === true;
 
   const scores: MatchScore[] = match.match_scores ?? [];
   const scoreA = scores.find((s: MatchScore) => s.team_name === match.team_a_name) ?? null;
   const scoreB = scores.find((s: MatchScore) => s.team_name === match.team_b_name) ?? null;
 
-  // Fetch match players (cricket + badminton)
-  let matchPlayers: MatchPlayer[] = [];
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const matchPlayers: MatchPlayer[] = (mp ?? []).map((p: any) => ({
+    id: p.id,
+    match_id: p.match_id,
+    player_id: p.player_id,
+    team_name: p.team_name,
+    name: p.profiles?.name ?? 'Unknown',
+  }));
+
   let playerStats: Record<string, CricketPlayerStat> = {};
-
-  if (match.sport === 'badminton' || match.sport === 'table_tennis') {
-    const { data: mp } = await supabase
-      .from('match_players')
-      .select('id, match_id, player_id, team_name, profiles(name)')
-      .eq('match_id', id);
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    matchPlayers = (mp ?? []).map((p: any) => ({
-      id: p.id,
-      match_id: p.match_id,
-      player_id: p.player_id,
-      team_name: p.team_name,
-      name: p.profiles?.name ?? 'Unknown',
-    }));
-  }
-
   if (match.sport === 'cricket') {
-    const [{ data: mp }, { data: ps }] = await Promise.all([
-      supabase
-        .from('match_players')
-        .select('id, match_id, player_id, team_name, profiles(name)')
-        .eq('match_id', id),
-      // select * so missing columns (pre-migration 009) don't break the query
-      supabase
-        .from('player_match_stats')
-        .select('*')
-        .eq('match_id', id),
-    ]);
-
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    matchPlayers = (mp ?? []).map((p: any) => ({
-      id: p.id,
-      match_id: p.match_id,
-      player_id: p.player_id,
-      team_name: p.team_name,
-      name: p.profiles?.name ?? 'Unknown',
-    }));
-
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    playerStats = Object.fromEntries((ps ?? []).map((s: any) => [
+    playerStats = Object.fromEntries((allPms ?? []).map((s: any) => [
       s.player_id,
       {
         runs_scored:   s.runs_scored,
@@ -91,6 +122,25 @@ export default async function MatchDetailPage({ params }: Props) {
       },
     ]));
   }
+
+  const impactRows = match.status !== 'upcoming'
+    ? buildMatchPlayerImpactRows(
+        match.sport as SportKey,
+        {
+          winner_team_name: match.winner_team_name,
+          winner_team_id: match.winner_team_id,
+          team_a_id: match.team_a_id,
+          team_b_id: match.team_b_id,
+          team_a_name: match.team_a_name,
+          team_b_name: match.team_b_name,
+          status: match.status,
+        },
+        matchPlayers,
+        allPms ?? [],
+        scoreA,
+        scoreB,
+      )
+    : [];
 
   return (
     <div className="max-w-2xl flex flex-col gap-6">
@@ -116,11 +166,47 @@ export default async function MatchDetailPage({ params }: Props) {
             <p className="text-sm text-gray-500 mt-0.5">{match.cricket_overs} overs</p>
           )}
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap justify-end">
           <MatchShareTrigger match={match as Match} scoreA={scoreA} scoreB={scoreB} />
-          {canEdit && <MatchControls match={match as Match} />}
+          {canControlLifecycle && <MatchControls match={match as Match} />}
         </div>
       </div>
+
+      {/* Admin-only delete — only after the match has ended (not LIVE / upcoming). */}
+      {viewerIsAdmin && match.status === 'completed' && (
+        <div className="rounded-xl border border-amber-800/60 bg-amber-950/20 px-3 py-2.5 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <p className="text-[11px] font-semibold uppercase tracking-wide text-amber-400">Admin tools</p>
+            <p className="text-[11px] text-gray-500 mt-0.5">
+              Delete match removes all scores, player stats, and confirmations (database CASCADE). Shown only after the match is completed.
+            </p>
+          </div>
+          <AdminDeleteMatchButton matchId={match.id} />
+        </div>
+      )}
+
+      {/* Trust / confirmation panel — only shows for non-confirmed matches */}
+      {match.status === 'completed' && (
+        <MatchConfirmationPanel
+          matchId={match.id}
+          matchState={confirmationState}
+          autoConfirmAt={match.auto_confirm_at ?? null}
+          scoredById={scorerId}
+          scorerName={(scorerRow as { name: string } | null)?.name ?? null}
+          currentUserId={user?.id ?? null}
+          viewerIsScorer={viewerIsScorer}
+          participants={matchPlayers.map(p => {
+            const conf = confByPlayer.get(p.player_id);
+            return {
+              player_id: p.player_id,
+              name: p.name,
+              team_name: p.team_name,
+              status: (conf?.status ?? 'pending') as 'pending' | 'confirmed' | 'disputed',
+              disputed_reason: conf?.disputed_reason ?? null,
+            };
+          })}
+        />
+      )}
 
       {/* Scorer */}
       {match.sport === 'cricket' && (
@@ -128,21 +214,40 @@ export default async function MatchDetailPage({ params }: Props) {
           match={match as Match}
           scoreA={scoreA}
           scoreB={scoreB}
-          canEdit={canEdit}
+          canEdit={canEditScores}
+          allowDisputeRecheck={allowDisputeRecheck}
           matchPlayers={matchPlayers}
           playerStats={playerStats}
         />
       )}
       {match.sport === 'football' && (
-        <FootballScorer match={match as Match} scoreA={scoreA} scoreB={scoreB} canEdit={canEdit} />
+        <FootballScorer
+          match={match as Match}
+          scoreA={scoreA}
+          scoreB={scoreB}
+          canEdit={canEditScores}
+          allowDisputeRecheck={allowDisputeRecheck}
+        />
       )}
       {match.sport === 'badminton' && (
-        <BadmintonScorer match={match as Match} scoreA={scoreA} scoreB={scoreB} canEdit={canEdit}
-          matchPlayers={matchPlayers} />
+        <BadmintonScorer
+          match={match as Match}
+          scoreA={scoreA}
+          scoreB={scoreB}
+          canEdit={canEditScores}
+          allowDisputeRecheck={allowDisputeRecheck}
+          matchPlayers={matchPlayers}
+        />
       )}
       {match.sport === 'table_tennis' && (
-        <TableTennisScorer match={match as Match} scoreA={scoreA} scoreB={scoreB} canEdit={canEdit}
-          matchPlayers={matchPlayers} />
+        <TableTennisScorer
+          match={match as Match}
+          scoreA={scoreA}
+          scoreB={scoreB}
+          canEdit={canEditScores}
+          allowDisputeRecheck={allowDisputeRecheck}
+          matchPlayers={matchPlayers}
+        />
       )}
 
       {/* Winner — use winner_team_name (works for ad-hoc matches too) */}
@@ -158,6 +263,8 @@ export default async function MatchDetailPage({ params }: Props) {
           </p>
         </div>
       )}
+
+      <MatchPlayerImpactSection rows={impactRows} />
     </div>
   );
 }

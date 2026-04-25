@@ -2,7 +2,17 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { X } from 'lucide-react';
-import confetti from 'canvas-confetti';
+
+// canvas-confetti is ~30KB. Lazy-import only when an achievement actually
+// fires — most dashboard visits have nothing to celebrate.
+type ConfettiFn = (opts: Record<string, unknown>) => void;
+let confettiPromise: Promise<ConfettiFn> | null = null;
+function loadConfetti(): Promise<ConfettiFn> {
+  if (!confettiPromise) {
+    confettiPromise = import('canvas-confetti').then(m => m.default as ConfettiFn);
+  }
+  return confettiPromise;
+}
 
 export interface Achievement {
   id: string;
@@ -90,7 +100,8 @@ export default function TrophyBanner({ achievements }: { achievements: Achieveme
     const c = colorMap[current.color ?? 'gold'];
     const isGold = !current.color || current.color === 'gold';
 
-    const confettiTimer = setTimeout(() => {
+    const confettiTimer = setTimeout(async () => {
+      const confetti = await loadConfetti();
       confetti({
         particleCount: isGold ? 160 : 100,
         spread: 110,

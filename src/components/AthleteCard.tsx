@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import CaliberBar from './CaliberBar';
+import SportBarsList from './SportBarsList';
 import {
   calcCaliber, getPlayerTagline, getPlayerTaglines, getOverallLevel,
   getCaliberColor, getCaliberTierLabel, CALIBER_TIERS,
@@ -49,9 +49,23 @@ interface Props {
   compact?: boolean;
   isOwn?: boolean;
   editSlot?: React.ReactNode;
+  /**
+   * If provided, each sport bar becomes interactive: a chevron on the right
+   * reveals the corresponding details panel inline below the bar.
+   */
+  expandableDetails?: Partial<Record<SportKey, React.ReactNode>>;
+  /**
+   * When `expandableDetails` is set, this controls which sport (if any) is
+   * open on first render. Default: first active sport. Pass `null` to start
+   * with everything collapsed (e.g. dashboard, where vertical space is
+   * precious).
+   */
+  defaultOpenSport?: SportKey | null;
 }
 
-export default function AthleteCard({ athlete, compact = false, isOwn = false, editSlot }: Props) {
+export default function AthleteCard({
+  athlete, compact = false, isOwn = false, editSlot, expandableDetails, defaultOpenSport,
+}: Props) {
   const { name, avatarUrl, sportStats, joinedYear } = athlete;
   const tagline = getPlayerTagline(sportStats);
   const sportTaglines = getPlayerTaglines(sportStats);
@@ -130,26 +144,22 @@ export default function AthleteCard({ athlete, compact = false, isOwn = false, e
           </div>
         )}
 
-        {/* Sport caliber bars */}
-        <div className={`flex flex-col ${compact ? 'gap-2' : 'gap-3'}`}>
-          {sportMeta.map(({ key, emoji, label }) => {
-            const score = calcCaliber(key, sportStats[key]);
-            const { text } = getCaliberColor(score);
-            return (
-              <div key={key}>
-                <div className="flex items-center justify-between mb-1">
-                  <span className={`text-xs font-semibold ${sportStats[key].matches > 0 ? 'text-white' : 'text-gray-700'}`}>
-                    {emoji} {label}
-                  </span>
-                  {!compact && sportStats[key].matches > 0 && (
-                    <span className={`text-xs ${text}`}>{statLine(key, sportStats[key])}</span>
-                  )}
-                </div>
-                <CaliberBar score={score} />
-              </div>
-            );
-          })}
-        </div>
+        {/* Sport caliber bars (interactive on profile pages via expandableDetails) */}
+        <SportBarsList
+          rows={sportMeta.map(m => ({
+            key: m.key, emoji: m.emoji, label: m.label,
+            statSummary: statLine(m.key, sportStats[m.key]),
+            details: expandableDetails?.[m.key],
+          }))}
+          sportStats={sportStats}
+          interactive={!!expandableDetails}
+          defaultOpen={
+            expandableDetails
+              ? (defaultOpenSport !== undefined ? defaultOpenSport : activeSportKeys[0] ?? null)
+              : null
+          }
+          compact={compact}
+        />
 
         {/* Active sport emoji pills (compact only) */}
         {compact && activeSports.length > 0 && (

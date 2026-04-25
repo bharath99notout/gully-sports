@@ -11,7 +11,7 @@ export default async function PlayersPage() {
   // server-side filter form here.
   const selectCols = `
       id, name, avatar_url, created_at,
-      player_match_stats(sport, runs_scored, wickets_taken, catches_taken, goals_scored, match_id, matches(winner_team_id, winner_team_name, team_a_id, team_b_id, team_a_name, team_b_name))
+      player_match_stats(sport, runs_scored, wickets_taken, catches_taken, goals_scored, match_id, matches(winner_team_id, winner_team_name, team_a_id, team_b_id, team_a_name, team_b_name, confirmation_state))
     `;
 
   const { data } = await supabase

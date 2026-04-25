@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { Trophy, Users, Calendar, User, LogOut, Menu, X, Search, Medal, Share2 } from 'lucide-react';
+import { Trophy, Users, Calendar, User, LogOut, Menu, X, Search, Medal, Share2, ShieldCheck, Hourglass, Bell } from 'lucide-react';
 import { useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
 
@@ -15,7 +15,35 @@ const navItems = [
   { href: '/profile',     label: 'Profile',     icon: User },
 ];
 
-export default function Navbar() {
+interface NavbarProps {
+  /** Matches the current user still owes a confirm/dispute response on. */
+  pendingCount?: number;
+  /** Admin queue size — only meaningful when isAdmin is true. */
+  adminQueueCount?: number;
+  /** In-app alerts (e.g. match completed, needs confirmation). */
+  notificationCount?: number;
+  isAdmin?: boolean;
+}
+
+/**
+ * Renders a small red-dot badge with a count. Visually deliberate: the dot
+ * sits on top-right of the host element, count overlays it for >0.
+ */
+function CountBadge({ count }: { count: number }) {
+  if (count <= 0) return null;
+  return (
+    <span className="absolute -top-1 -right-1 min-w-[16px] h-4 px-1 inline-flex items-center justify-center rounded-full bg-red-500 text-white text-[9px] font-bold leading-none">
+      {count > 9 ? '9+' : count}
+    </span>
+  );
+}
+
+export default function Navbar({
+  pendingCount = 0,
+  adminQueueCount = 0,
+  notificationCount = 0,
+  isAdmin = false,
+}: NavbarProps) {
   const pathname = usePathname();
   const router = useRouter();
   const [menuOpen, setMenuOpen] = useState(false);
@@ -61,20 +89,59 @@ export default function Navbar() {
 
         {/* Desktop nav */}
         <div className="hidden md:flex items-center gap-1">
-          {navItems.map(({ href, label, icon: Icon }) => (
+          {navItems.map(({ href, label, icon: Icon }) => {
+            // Pending-confirmation count rides on Home. Keeps the badge near
+            // the dashboard where the action is taken.
+            const showPending = href === '/dashboard' && pendingCount > 0;
+            return (
+              <Link
+                key={href}
+                href={href}
+                className={`relative flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm transition-colors ${
+                  pathname.startsWith(href)
+                    ? 'bg-emerald-900/50 text-emerald-400'
+                    : 'text-gray-400 hover:text-white hover:bg-gray-800'
+                }`}
+              >
+                <span className="relative">
+                  <Icon size={16} />
+                  {showPending && <CountBadge count={pendingCount} />}
+                </span>
+                {label}
+              </Link>
+            );
+          })}
+          <Link
+            href="/notifications"
+            className={`relative flex items-center gap-1.5 px-2 py-1.5 rounded-lg text-sm transition-colors ${
+              pathname.startsWith('/notifications')
+                ? 'bg-emerald-900/50 text-emerald-400'
+                : 'text-gray-400 hover:text-white hover:bg-gray-800'
+            }`}
+            title="Notifications"
+          >
+            <span className="relative">
+              <Bell size={18} />
+              <CountBadge count={notificationCount} />
+            </span>
+          </Link>
+          {isAdmin && (
             <Link
-              key={href}
-              href={href}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm transition-colors ${
-                pathname.startsWith(href)
-                  ? 'bg-emerald-900/50 text-emerald-400'
-                  : 'text-gray-400 hover:text-white hover:bg-gray-800'
+              href="/admin/matches"
+              className={`relative flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm transition-colors ${
+                pathname.startsWith('/admin')
+                  ? 'bg-amber-900/40 text-amber-300'
+                  : 'text-amber-400/70 hover:text-amber-300 hover:bg-amber-900/20'
               }`}
+              title="Admin queue"
             >
-              <Icon size={16} />
-              {label}
+              <span className="relative">
+                <ShieldCheck size={16} />
+                <CountBadge count={adminQueueCount} />
+              </span>
+              Admin
             </Link>
-          ))}
+          )}
           <button
             onClick={shareApp}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm text-emerald-400 hover:text-emerald-300 hover:bg-emerald-900/30 transition-colors ml-2"
@@ -102,11 +169,13 @@ export default function Navbar() {
             <Share2 size={18} />
           </button>
           <button
-            className="p-2 text-gray-400"
+            className="relative p-2 text-gray-400"
             onClick={() => setMenuOpen(!menuOpen)}
             aria-label={menuOpen ? 'Close menu' : 'Open menu'}
           >
             {menuOpen ? <X size={20} /> : <Menu size={20} />}
+            {/* Combined unread indicator so users notice it without opening the menu. */}
+            <CountBadge count={pendingCount + notificationCount + (isAdmin ? adminQueueCount : 0)} />
           </button>
         </div>
       </div>
@@ -114,21 +183,72 @@ export default function Navbar() {
       {/* Mobile menu */}
       {menuOpen && (
         <div className="md:hidden border-t border-gray-800 bg-gray-950 px-4 py-2 flex flex-col gap-1">
-          {navItems.map(({ href, label, icon: Icon }) => (
+          {navItems.map(({ href, label, icon: Icon }) => {
+            const showPending = href === '/dashboard' && pendingCount > 0;
+            return (
+              <Link
+                key={href}
+                href={href}
+                onClick={() => setMenuOpen(false)}
+                className={`flex items-center justify-between px-3 py-2 rounded-lg text-sm transition-colors ${
+                  pathname.startsWith(href)
+                    ? 'bg-emerald-900/50 text-emerald-400'
+                    : 'text-gray-400 hover:text-white hover:bg-gray-800'
+                }`}
+              >
+                <span className="flex items-center gap-2">
+                  <Icon size={16} />
+                  {label}
+                </span>
+                {showPending && (
+                  <span className="inline-flex items-center gap-1 text-[11px] text-amber-400">
+                    <Hourglass size={11} />
+                    {pendingCount} pending
+                  </span>
+                )}
+              </Link>
+            );
+          })}
+          <Link
+            href="/notifications"
+            onClick={() => setMenuOpen(false)}
+            className={`flex items-center justify-between px-3 py-2 rounded-lg text-sm transition-colors ${
+              pathname.startsWith('/notifications')
+                ? 'bg-emerald-900/50 text-emerald-400'
+                : 'text-gray-400 hover:text-white hover:bg-gray-800'
+            }`}
+          >
+            <span className="flex items-center gap-2">
+              <Bell size={16} />
+              Notifications
+            </span>
+            {notificationCount > 0 && (
+              <span className="inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full bg-red-500 text-white text-[10px] font-bold">
+                {notificationCount > 9 ? '9+' : notificationCount}
+              </span>
+            )}
+          </Link>
+          {isAdmin && (
             <Link
-              key={href}
-              href={href}
+              href="/admin/matches"
               onClick={() => setMenuOpen(false)}
-              className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors ${
-                pathname.startsWith(href)
-                  ? 'bg-emerald-900/50 text-emerald-400'
-                  : 'text-gray-400 hover:text-white hover:bg-gray-800'
+              className={`flex items-center justify-between px-3 py-2 rounded-lg text-sm transition-colors ${
+                pathname.startsWith('/admin')
+                  ? 'bg-amber-900/40 text-amber-300'
+                  : 'text-amber-400/80 hover:text-amber-300 hover:bg-amber-900/20'
               }`}
             >
-              <Icon size={16} />
-              {label}
+              <span className="flex items-center gap-2">
+                <ShieldCheck size={16} />
+                Admin queue
+              </span>
+              {adminQueueCount > 0 && (
+                <span className="inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full bg-red-500 text-white text-[10px] font-bold">
+                  {adminQueueCount > 9 ? '9+' : adminQueueCount}
+                </span>
+              )}
             </Link>
-          ))}
+          )}
           <button
             onClick={() => { setMenuOpen(false); shareApp(); }}
             className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-emerald-400 hover:text-emerald-300 hover:bg-emerald-900/30 transition-colors"

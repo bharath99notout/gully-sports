@@ -11,6 +11,8 @@ interface Props {
   scoreA: MatchScore | null;
   scoreB: MatchScore | null;
   canEdit: boolean;
+  /** When set, completed + disputed matches still show full scoring UI for the scorer. */
+  allowDisputeRecheck?: boolean;
   matchPlayers: MatchPlayer[];
   playerStats: Record<string, CricketPlayerStat>;
 }
@@ -44,11 +46,13 @@ export default function CricketScorer({
   scoreA: initA,
   scoreB: initB,
   canEdit,
+  allowDisputeRecheck = false,
   matchPlayers: initPlayers,
   playerStats: initStats,
 }: Props) {
   const supabase = createClient();
   const isLive = match.status === 'live';
+  const scoringActive = isLive || (match.status === 'completed' && allowDisputeRecheck);
 
   const [players, setPlayers] = useState<MatchPlayer[]>(initPlayers);
   const [stats, setStats] = useState<Record<string, CricketPlayerStat>>(initStats);
@@ -390,6 +394,14 @@ export default function CricketScorer({
   return (
     <div className="flex flex-col gap-4">
 
+      {allowDisputeRecheck && (
+        <div className="rounded-xl border border-amber-700/50 bg-amber-950/35 px-3 py-2.5 text-sm text-amber-100">
+          <span className="font-semibold text-amber-300">Disputed — scorer recheck</span>
+          {' '}
+          Correct runs, wickets, or players below. Saving updates clears disputes and asks everyone to confirm again.
+        </div>
+      )}
+
       {/* ── Score cards ── */}
       <div className="grid grid-cols-2 gap-3">
         {([
@@ -412,7 +424,7 @@ export default function CricketScorer({
       </div>
 
       {/* ── Chase target banner (2nd innings) ── */}
-      {canEdit && isLive && innings === 2 && battingTeam && targetRuns !== null && (
+      {canEdit && scoringActive && innings === 2 && battingTeam && targetRuns !== null && (
         <div className="bg-blue-950/30 border border-blue-800/50 rounded-xl px-4 py-2.5 flex items-center justify-between">
           <div className="flex items-center gap-2">
             <Target size={14} className="text-blue-400 shrink-0" />
@@ -443,12 +455,12 @@ export default function CricketScorer({
       )}
 
       {/* ── Post-match MVP Leaderboard ── */}
-      {match.status === 'completed' && allPlayers.length > 0 && (
+      {match.status === 'completed' && allPlayers.length > 0 && !allowDisputeRecheck && (
         <MVPLeaderboard players={allPlayers} stats={stats} getStats={getStats} />
       )}
 
       {/* ── Post-match summary (replaces bare scorecard when completed) ── */}
-      {match.status === 'completed' && players.length > 0 && (
+      {match.status === 'completed' && players.length > 0 && !allowDisputeRecheck && (
         <PostMatchSummary
           players={players} stats={stats}
           match={match} scoreA={scoreA} scoreB={scoreB}
@@ -456,11 +468,11 @@ export default function CricketScorer({
       )}
 
       {/* ── Read-only scorecard (live match, non-editor) ── */}
-      {match.status !== 'completed' && (!canEdit || !isLive) && players.length > 0 && (
+      {match.status === 'live' && (!canEdit || !scoringActive) && players.length > 0 && (
         <PlayerScorecard players={players} stats={stats} teamA={match.team_a_name} teamB={match.team_b_name} />
       )}
 
-      {canEdit && isLive && (
+      {canEdit && scoringActive && (
         <>
           {/* ── Choose batting team ── */}
           {!battingTeam && (

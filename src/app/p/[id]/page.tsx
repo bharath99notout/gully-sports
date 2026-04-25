@@ -7,8 +7,17 @@ import AthleteCard from '@/components/AthleteCard';
 import ShareButton from '@/components/ShareButton';
 import FeedMatchCard from '@/components/FeedMatchCard';
 import { buildAthleteData, enrichStatsWithTeamNames } from '@/lib/athleteData';
+import { fetchPlayerDetailedStats } from '@/lib/playerDetailedStats';
+import CricketStatsSection from '@/components/CricketStatsSection';
+import FootballStatsPanel from '@/components/FootballStatsPanel';
+import RacquetStatsPanel from '@/components/RacquetStatsPanel';
 import { calcCaliber, getCaliberLabel, SportKey } from '@/lib/caliber';
 import { headers } from 'next/headers';
+
+// Public share page — re-render at most every 60s. Personal data (logged-in
+// user header) is rendered inline based on `cookies`, so dynamic rendering
+// kicks in for authed visits anyway. This setting helps anonymous shares.
+export const revalidate = 60;
 
 interface Props { params: Promise<{ id: string }> }
 
@@ -62,12 +71,12 @@ export default async function PublicProfilePage({ params }: Props) {
     supabase.from('profiles').select('id, name, avatar_url, created_at').eq('id', id).single(),
     supabase
       .from('player_match_stats')
-      .select('sport, runs_scored, wickets_taken, catches_taken, goals_scored, match_id, matches(winner_team_id, winner_team_name, team_a_id, team_b_id, team_a_name, team_b_name)')
+      .select('sport, runs_scored, wickets_taken, catches_taken, goals_scored, balls_faced, fours, sixes, balls_bowled, runs_conceded, is_out, match_id, matches(winner_team_id, winner_team_name, team_a_id, team_b_id, team_a_name, team_b_name, confirmation_state)')
       .eq('player_id', id),
     supabase
       .from('matches')
       .select(`
-        id, sport, status, team_a_name, team_b_name,
+        id, sport, status, confirmation_state, team_a_name, team_b_name,
         winner_team_id, winner_team_name, team_a_id, team_b_id, played_at,
         match_scores(team_name, runs, wickets, overs_faced, goals, sets),
         player_match_stats(player_id, runs_scored, wickets_taken, catches_taken, goals_scored, profiles(id, name))
@@ -92,6 +101,30 @@ export default async function PublicProfilePage({ params }: Props) {
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const athleteData = buildAthleteData(profile as any, enrichedStats);
+  const detailedStats = await fetchPlayerDetailedStats(
+    id,
+    enrichedStats,
+    (myMatchPlayers ?? []) as Array<{ match_id: string; team_name: string }>,
+  );
+
+  // Per-sport detail JSX, threaded into AthleteCard so each sport bar can
+  // expand its own tile grid in place. Only build for sports the player has
+  // actually played — keeps the card lean.
+  const expandableDetails: Partial<Record<SportKey, React.ReactNode>> = {};
+  if (detailedStats.cricket.innings > 0
+      || detailedStats.cricket.bowlingInnings > 0
+      || detailedStats.cricket.totalCatches > 0) {
+    expandableDetails.cricket = <CricketStatsSection detail={detailedStats.cricket} />;
+  }
+  if (detailedStats.football.matches > 0) {
+    expandableDetails.football = <FootballStatsPanel detail={detailedStats.football} />;
+  }
+  if (detailedStats.badminton.matches > 0) {
+    expandableDetails.badminton = <RacquetStatsPanel detail={detailedStats.badminton} showFormatSplit />;
+  }
+  if (detailedStats.tableTennis.matches > 0) {
+    expandableDetails.table_tennis = <RacquetStatsPanel detail={detailedStats.tableTennis} />;
+  }
 
   const playerMatchIds = new Set((allStats ?? []).map((s: { match_id: string }) => s.match_id));
   const feedMatches = (rawMatches ?? [])
@@ -174,7 +207,7 @@ export default async function PublicProfilePage({ params }: Props) {
           />
         </div>
 
-        <AthleteCard athlete={athleteData} />
+        <AthleteCard athlete={athleteData} expandableDetails={expandableDetails} />
 
         {feedMatches.length > 0 && (
           <div>

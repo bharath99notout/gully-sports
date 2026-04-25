@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { SportType, MatchStatus } from '@/types';
+import ConfirmationBadge from '@/components/ConfirmationBadge';
 
 interface PlayerPerf {
   player_id: string;
@@ -26,6 +27,8 @@ interface FeedMatch {
   id: string;
   sport: SportType;
   status: MatchStatus;
+  /** Trust state from migration 013. */
+  confirmation_state?: 'pending' | 'confirmed' | 'disputed' | 'force_pushed' | 'rejected' | null;
   team_a_name: string;
   team_b_name: string;
   winner_team_id: string | null;
@@ -188,6 +191,9 @@ export default function FeedMatchCard({ match }: { match: FeedMatch }) {
             )}
             {match.status === 'completed' && (
               <span className="text-[10px] text-gray-500 font-semibold uppercase tracking-wider">Completed</span>
+            )}
+            {match.status === 'completed' && match.confirmation_state && match.confirmation_state !== 'confirmed' && (
+              <ConfirmationBadge state={match.confirmation_state} compact />
             )}
             <span className="text-[11px] text-gray-600">· {timeAgo(match.played_at)}</span>
           </div>

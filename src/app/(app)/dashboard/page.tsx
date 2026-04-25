@@ -7,19 +7,34 @@ import AvatarUpload from '@/components/AvatarUpload';
 import FeedMatchCard from '@/components/FeedMatchCard';
 import ShareButton from '@/components/ShareButton';
 import { buildAthleteData, enrichStatsWithTeamNames } from '@/lib/athleteData';
+import { fetchPlayerDetailedStats } from '@/lib/playerDetailedStats';
+import { getPendingMatchesForUser, maybeSweepAutoConfirms } from '@/lib/matchConfirmationServer';
+import PendingMatchesSection from '@/components/PendingMatchesSection';
+import CricketStatsSection from '@/components/CricketStatsSection';
+import FootballStatsPanel from '@/components/FootballStatsPanel';
+import RacquetStatsPanel from '@/components/RacquetStatsPanel';
 import { calcCaliber, getCaliberLabel, SportKey } from '@/lib/caliber';
 import TrophyBanner, { Achievement } from '@/components/TrophyBanner';
+import { isMatchExcludedFromStats, type ConfirmationState } from '@/lib/matchConfirmation';
 
 export default async function DashboardPage() {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
+
+  // Run the auto-confirm sweep on every dashboard load (rate-limited to 1/min)
+  // so the 6h auto-confirm window doesn't depend on people viewing match
+  // pages. The dashboard is the most-hit page, so it's the right place.
+  await maybeSweepAutoConfirms();
+
+  // Pending matches that need this user's confirm/dispute response.
+  const pendingForMe = user ? await getPendingMatchesForUser(user.id) : [];
 
   // Fetch profile + stats + match_players (for win attribution)
   const [{ data: profile }, { data: myStats }, { data: myMatchPlayers }] = await Promise.all([
     supabase.from('profiles').select('id, name, avatar_url, created_at').eq('id', user!.id).single(),
     supabase
       .from('player_match_stats')
-      .select('sport, runs_scored, wickets_taken, catches_taken, goals_scored, match_id, matches(winner_team_id, winner_team_name, team_a_id, team_b_id, team_a_name, team_b_name)')
+      .select('sport, runs_scored, wickets_taken, catches_taken, goals_scored, balls_faced, fours, sixes, balls_bowled, runs_conceded, is_out, match_id, matches(winner_team_id, winner_team_name, team_a_id, team_b_id, team_a_name, team_b_name, confirmation_state)')
       .eq('player_id', user!.id),
     supabase
       .from('match_players')
@@ -30,28 +45,21 @@ export default async function DashboardPage() {
   // Only fetch matches the user actually played in
   const myMatchIds = [...new Set((myStats ?? []).map(s => s.match_id))];
 
-  const [{ data: rawFeed }, { data: liveMatches }] = await Promise.all([
-    myMatchIds.length > 0
-      ? supabase
-          .from('matches')
-          .select(`id, sport, status, team_a_name, team_b_name, winner_team_id, winner_team_name, team_a_id, team_b_id, played_at,
-            match_scores(team_name, runs, wickets, overs_faced, goals, sets),
-            player_match_stats(player_id, runs_scored, wickets_taken, catches_taken, goals_scored, profiles(id, name))`)
-          .in('id', myMatchIds)
-          .neq('status', 'upcoming')
-          .order('played_at', { ascending: false })
-          .limit(15)
-      : Promise.resolve({ data: [] }),
-
-    myMatchIds.length > 0
-      ? supabase
-          .from('matches')
-          .select('id, sport, team_a_name, team_b_name, match_scores(team_name, runs, wickets, goals)')
-          .in('id', myMatchIds)
-          .eq('status', 'live')
-          .limit(5)
-      : Promise.resolve({ data: [] }),
-  ]);
+  // One feed query — derive `liveMatches` from it client-side instead of a
+  // second roundtrip. The feed already includes status + scores we need.
+  const { data: rawFeed } = myMatchIds.length > 0
+    ? await supabase
+        .from('matches')
+        .select(`id, sport, status, confirmation_state, team_a_name, team_b_name, winner_team_id, winner_team_name, team_a_id, team_b_id, played_at,
+          match_scores(team_name, runs, wickets, overs_faced, goals, sets),
+          player_match_stats(player_id, runs_scored, wickets_taken, catches_taken, goals_scored, profiles(id, name))`)
+        .in('id', myMatchIds)
+        .neq('status', 'upcoming')
+        .order('played_at', { ascending: false })
+        .limit(15)
+    : { data: [] };
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const liveMatches = ((rawFeed ?? []) as any[]).filter(m => m.status === 'live').slice(0, 5);
 
   const enrichedStats = enrichStatsWithTeamNames(
     (myStats ?? []) as unknown as Parameters<typeof enrichStatsWithTeamNames>[0],
@@ -62,6 +70,29 @@ export default async function DashboardPage() {
     profile ?? { id: user!.id, name: 'Player', avatar_url: null, created_at: new Date().toISOString() },
     enrichedStats
   );
+
+  // Same expandable per-sport details we use on profile pages, so the
+  // dashboard AthleteCard becomes interactive too — no extra section needed.
+  const detailedStats = await fetchPlayerDetailedStats(
+    user!.id,
+    enrichedStats,
+    (myMatchPlayers ?? []) as Array<{ match_id: string; team_name: string }>,
+  );
+  const expandableDetails: Partial<Record<SportKey, React.ReactNode>> = {};
+  if (detailedStats.cricket.innings > 0
+      || detailedStats.cricket.bowlingInnings > 0
+      || detailedStats.cricket.totalCatches > 0) {
+    expandableDetails.cricket = <CricketStatsSection detail={detailedStats.cricket} />;
+  }
+  if (detailedStats.football.matches > 0) {
+    expandableDetails.football = <FootballStatsPanel detail={detailedStats.football} />;
+  }
+  if (detailedStats.badminton.matches > 0) {
+    expandableDetails.badminton = <RacquetStatsPanel detail={detailedStats.badminton} showFormatSplit />;
+  }
+  if (detailedStats.tableTennis.matches > 0) {
+    expandableDetails.table_tennis = <RacquetStatsPanel detail={detailedStats.tableTennis} />;
+  }
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const feedMatches = (rawFeed ?? []).map((m: any) => ({
@@ -84,6 +115,9 @@ export default async function DashboardPage() {
     (p.runs_scored ?? 0) + (p.wickets_taken ?? 0) * 20 + (p.catches_taken ?? 0) * 10;
 
   for (const stat of myStats ?? []) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const confState = (stat as any).matches?.confirmation_state as ConfirmationState | undefined;
+    if (isMatchExcludedFromStats(confState)) continue;
     const mid = stat.match_id;
     if ((stat.runs_scored ?? 0) >= 100)
       achievements.push({ id: `century_${mid}`, emoji: '💯', title: 'Century!', subtitle: `${stat.runs_scored} runs`, color: 'gold' });
@@ -107,6 +141,7 @@ export default async function DashboardPage() {
   // MVP: highest impact player in each completed match
   for (const match of feedMatches) {
     if (match.status !== 'completed') continue;
+    if (match.confirmation_state !== 'confirmed') continue;
     const perfs: { player_id: string; runs_scored: number; wickets_taken: number; catches_taken: number }[] =
       match.player_performances ?? [];
     if (perfs.length === 0) continue;
@@ -120,6 +155,9 @@ export default async function DashboardPage() {
   for (const mp of myMatchPlayers ?? []) myTeamByMatch.set(mp.match_id, mp.team_name);
   for (const stat of myStats ?? []) {
     if (stat.sport !== 'badminton' && stat.sport !== 'table_tennis') continue;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const confState = (stat as any).matches?.confirmation_state as ConfirmationState | undefined;
+    if (isMatchExcludedFromStats(confState)) continue;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const m = (stat as any).matches as { winner_team_name?: string | null } | null;
     const playerTeam = myTeamByMatch.get(stat.match_id);
@@ -181,29 +219,22 @@ export default async function DashboardPage() {
         <span className="text-xs font-medium text-emerald-400 shrink-0">Open →</span>
       </Link>
 
-      {/* Athlete card hero */}
+      {/* Athlete card hero — sport bars are tap-to-expand. Start collapsed
+          on the dashboard so the rest of the page (live, recent, etc.) stays
+          visible without scrolling. */}
       <AthleteCard
         athlete={athleteData}
         isOwn
         editSlot={<AvatarUpload userId={user!.id} />}
+        expandableDetails={expandableDetails}
+        defaultOpenSport={null}
       />
 
-      {/* Share my profile — link preview + image attachment */}
-      <div className="bg-gray-900 border border-gray-800 rounded-xl px-4 py-3 flex items-center justify-between gap-3">
-        <div className="min-w-0">
-          <p className="text-sm font-semibold text-white">Share your profile</p>
-          <p className="text-[11px] text-gray-500 truncate">Send your card on WhatsApp — link preview or as a photo</p>
-        </div>
-        <ShareButton
-          text={myShareText}
-          url={myShareUrl}
-          title={`${athleteData.name || 'My'} – GullySports`}
-          variant="inline"
-          label="Share"
-          imageUrl={myOgImageUrl}
-          imageFilename={myImageFilename}
-        />
-      </div>
+      {/* Trust workflow — needs your attention. Sits right under the hero
+          so you can't miss it. Renders nothing when there's nothing pending. */}
+      {pendingForMe.length > 0 && (
+        <PendingMatchesSection matches={pendingForMe} />
+      )}
 
       {/* New match CTA */}
       <div className="grid grid-cols-2 gap-2">
@@ -270,6 +301,24 @@ export default async function DashboardPage() {
             </Link>
           </div>
         )}
+      </div>
+
+      {/* Share my profile — keep at the bottom so it doesn't break the
+          identity → action → activity flow above. */}
+      <div className="bg-gray-900 border border-gray-800 rounded-xl px-4 py-3 flex items-center justify-between gap-3">
+        <div className="min-w-0">
+          <p className="text-sm font-semibold text-white">Share your profile</p>
+          <p className="text-[11px] text-gray-500 truncate">Send your card on WhatsApp — link preview or as a photo</p>
+        </div>
+        <ShareButton
+          text={myShareText}
+          url={myShareUrl}
+          title={`${athleteData.name || 'My'} – GullySports`}
+          variant="inline"
+          label="Share"
+          imageUrl={myOgImageUrl}
+          imageFilename={myImageFilename}
+        />
       </div>
     </div>
   );

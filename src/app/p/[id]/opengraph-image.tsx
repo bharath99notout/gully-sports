@@ -13,6 +13,9 @@ export const contentType = 'image/png';
 // Run on Node, not edge — we use the Supabase server client which depends on
 // the cookies/headers Node APIs available in our setup.
 export const runtime = 'nodejs';
+// Cache the rendered PNG for an hour. The route URL is versioned by an
+// avatar+name hash (?v=...) so any meaningful change busts the cache instantly.
+export const revalidate = 3600;
 
 const SPORT_META: Record<SportKey, { emoji: string; label: string }> = {
   cricket:      { emoji: '🏏', label: 'Cricket' },
@@ -35,7 +38,7 @@ export default async function ProfileOgImage({
       .single(),
     supabase
       .from('player_match_stats')
-      .select('sport, runs_scored, wickets_taken, catches_taken, goals_scored, match_id, matches(winner_team_id, winner_team_name, team_a_id, team_b_id, team_a_name, team_b_name)')
+      .select('sport, runs_scored, wickets_taken, catches_taken, goals_scored, match_id, matches(winner_team_id, winner_team_name, team_a_id, team_b_id, team_a_name, team_b_name, confirmation_state)')
       .eq('player_id', id),
     supabase
       .from('match_players')

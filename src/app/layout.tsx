@@ -52,9 +52,19 @@ export const viewport: Viewport = {
   viewportFit: 'cover',
 };
 
+// Hostnames we'll definitely contact on the very first paint — preconnect
+// shaves ~150ms off the first Supabase / avatar-image request on mobile.
+const supabaseHost = process.env.NEXT_PUBLIC_SUPABASE_URL
+  ? new URL(process.env.NEXT_PUBLIC_SUPABASE_URL).origin
+  : null;
+
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en" className={`${geist.variable} h-full`}>
+      <head>
+        {supabaseHost && <link rel="preconnect" href={supabaseHost} crossOrigin="anonymous" />}
+        {supabaseHost && <link rel="dns-prefetch" href={supabaseHost} />}
+      </head>
       <body className="min-h-full bg-gray-950 text-white antialiased">
         {children}
         <PWARegister />

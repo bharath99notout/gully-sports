@@ -3,6 +3,7 @@ import Link from 'next/link';
 import { Plus, Calendar } from 'lucide-react';
 import Card from '@/components/ui/Card';
 import SportBadge from '@/components/SportBadge';
+import DeleteSuccessBanner from '@/components/DeleteSuccessBanner';
 import { Match, SportType } from '@/types';
 
 const statusLabel: Record<string, string> = {
@@ -20,9 +21,9 @@ const statusClass: Record<string, string> = {
 export default async function MatchesPage({
   searchParams,
 }: {
-  searchParams: Promise<{ sport?: string; status?: string }>;
+  searchParams: Promise<{ sport?: string; status?: string; deleted?: string }>;
 }) {
-  const { sport, status } = await searchParams;
+  const { sport, status, deleted } = await searchParams;
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
 
@@ -63,6 +64,8 @@ export default async function MatchesPage({
 
   return (
     <div className="flex flex-col gap-6">
+      {deleted === '1' && <DeleteSuccessBanner dismissHref="/matches" />}
+
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold text-white">My Matches</h1>
         <Link
