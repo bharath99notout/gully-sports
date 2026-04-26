@@ -9,6 +9,7 @@ interface Props {
   scoreB: MatchScore | null;
   canEdit: boolean;
   allowDisputeRecheck?: boolean;
+  adminOverrideCompleted?: boolean;
   matchPlayers: MatchPlayer[];
 }
 

@@ -61,10 +61,21 @@ interface Props {
    * precious).
    */
   defaultOpenSport?: SportKey | null;
+  /**
+   * When true, the overlapping avatar + name/tagline block is omitted so the
+   * parent page can show a larger identity hero without duplication.
+   */
+  hideIdentityBlock?: boolean;
 }
 
 export default function AthleteCard({
-  athlete, compact = false, isOwn = false, editSlot, expandableDetails, defaultOpenSport,
+  athlete,
+  compact = false,
+  isOwn = false,
+  editSlot,
+  expandableDetails,
+  defaultOpenSport,
+  hideIdentityBlock = false,
 }: Props) {
   const { name, avatarUrl, sportStats, joinedYear } = athlete;
   const tagline = getPlayerTagline(sportStats);
@@ -99,39 +110,43 @@ export default function AthleteCard({
         )}
       </div>
 
-      <div className={compact ? 'px-4 pb-4' : 'px-5 pb-5'}>
-        {/* Avatar row — no badge here, freed from clipping risk */}
-        <div className="flex items-end -mt-10 mb-4">
-          <div className="relative">
-            {avatarUrl ? (
-              <img src={avatarUrl} alt={name}
-                className={`rounded-full border-4 border-gray-900 object-cover ${compact ? 'w-16 h-16' : 'w-20 h-20'}`} />
-            ) : (
-              <div className={`rounded-full border-4 border-gray-900 bg-gradient-to-br from-emerald-500 to-teal-700 flex items-center justify-center font-bold text-white ${compact ? 'w-16 h-16 text-2xl' : 'w-20 h-20 text-3xl'}`}>
-                {name?.trim()?.[0]?.toUpperCase() ?? '?'}
+      <div className={`${compact ? 'px-4 pb-4' : 'px-5 pb-5'} ${hideIdentityBlock ? 'pt-4' : ''}`}>
+        {!hideIdentityBlock && (
+          <>
+            {/* Avatar row — no badge here, freed from clipping risk */}
+            <div className="flex items-end -mt-10 mb-4">
+              <div className="relative">
+                {avatarUrl ? (
+                  <img src={avatarUrl} alt={name}
+                    className={`rounded-full border-4 border-gray-900 object-cover ${compact ? 'w-16 h-16' : 'w-20 h-20'}`} />
+                ) : (
+                  <div className={`rounded-full border-4 border-gray-900 bg-gradient-to-br from-emerald-500 to-teal-700 flex items-center justify-center font-bold text-white ${compact ? 'w-16 h-16 text-2xl' : 'w-20 h-20 text-3xl'}`}>
+                    {name?.trim()?.[0]?.toUpperCase() ?? '?'}
+                  </div>
+                )}
+                {isOwn && editSlot && (
+                  <div className="absolute -bottom-1 -right-1">{editSlot}</div>
+                )}
               </div>
-            )}
-            {isOwn && editSlot && (
-              <div className="absolute -bottom-1 -right-1">{editSlot}</div>
-            )}
-          </div>
-        </div>
-
-        {/* Name + tagline */}
-        <div className="mb-1">
-          <h2 className={`font-bold text-white leading-tight ${compact ? 'text-base' : 'text-xl'}`}>{name}</h2>
-          {sportTaglines.length === 0 ? (
-            <p className="text-sm text-gray-500 mt-0.5">{tagline}</p>
-          ) : (
-            <div className="mt-1 flex flex-wrap gap-1.5">
-              {sportTaglines.map((t, i) => (
-                <span key={i} className="text-xs px-2 py-0.5 rounded-full bg-gray-800 border border-gray-700 text-gray-300">
-                  {t}
-                </span>
-              ))}
             </div>
-          )}
-        </div>
+
+            {/* Name + tagline */}
+            <div className="mb-1">
+              <h2 className={`font-bold text-white leading-tight ${compact ? 'text-base' : 'text-xl'}`}>{name}</h2>
+              {sportTaglines.length === 0 ? (
+                <p className="text-sm text-gray-500 mt-0.5">{tagline}</p>
+              ) : (
+                <div className="mt-1 flex flex-wrap gap-1.5">
+                  {sportTaglines.map((t, i) => (
+                    <span key={i} className="text-xs px-2 py-0.5 rounded-full bg-gray-800 border border-gray-700 text-gray-300">
+                      {t}
+                    </span>
+                  ))}
+                </div>
+              )}
+            </div>
+          </>
+        )}
 
         {/* Mini stats + year */}
         {!compact && (

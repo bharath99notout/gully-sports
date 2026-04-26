@@ -13,6 +13,8 @@ interface Props {
   canEdit: boolean;
   /** When set, completed + disputed matches still show full scoring UI for the scorer. */
   allowDisputeRecheck?: boolean;
+  /** Admin: allow full scoring UI on completed matches. */
+  adminOverrideCompleted?: boolean;
   matchPlayers: MatchPlayer[];
   playerStats: Record<string, CricketPlayerStat>;
 }
@@ -47,12 +49,15 @@ export default function CricketScorer({
   scoreB: initB,
   canEdit,
   allowDisputeRecheck = false,
+  adminOverrideCompleted = false,
   matchPlayers: initPlayers,
   playerStats: initStats,
 }: Props) {
   const supabase = createClient();
   const isLive = match.status === 'live';
-  const scoringActive = isLive || (match.status === 'completed' && allowDisputeRecheck);
+  const scoringActive =
+    isLive
+    || (match.status === 'completed' && (allowDisputeRecheck || adminOverrideCompleted));
 
   const [players, setPlayers] = useState<MatchPlayer[]>(initPlayers);
   const [stats, setStats] = useState<Record<string, CricketPlayerStat>>(initStats);
@@ -455,12 +460,12 @@ export default function CricketScorer({
       )}
 
       {/* ── Post-match MVP Leaderboard ── */}
-      {match.status === 'completed' && allPlayers.length > 0 && !allowDisputeRecheck && (
+      {match.status === 'completed' && allPlayers.length > 0 && !allowDisputeRecheck && !adminOverrideCompleted && (
         <MVPLeaderboard players={allPlayers} stats={stats} getStats={getStats} />
       )}
 
       {/* ── Post-match summary (replaces bare scorecard when completed) ── */}
-      {match.status === 'completed' && players.length > 0 && !allowDisputeRecheck && (
+      {match.status === 'completed' && players.length > 0 && !allowDisputeRecheck && !adminOverrideCompleted && (
         <PostMatchSummary
           players={players} stats={stats}
           match={match} scoreA={scoreA} scoreB={scoreB}
@@ -673,7 +678,7 @@ export default function CricketScorer({
                       className="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-1.5 text-sm text-white placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-emerald-500"
                     />
                     <p className="text-[10px] text-gray-500 leading-snug">
-                      Creates a real account using this number. Player can log in later with OTP = last 4 digits.
+                      Creates a real account using this number. They sign in with the same mobile number and the 4-digit SMS code.
                     </p>
                     <div className="flex gap-2 mt-1">
                       <button onClick={() => { setNewPlayerOpen(false); setNewPlayerName(''); setNewPlayerPhone(''); }}

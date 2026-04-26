@@ -1,9 +1,17 @@
 'use client';
 
-import { Suspense, useEffect, useState } from 'react';
+import { Suspense, useEffect, useRef, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { Trophy } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
+import {
+  formatOtpVerifyError,
+  MAGIC_SMS_OTP,
+  normalizeSmsOtpInput,
+  SMS_OTP_LENGTH,
+  toIndiaE164,
+  tryMagicPhoneOtpSignIn,
+} from '@/lib/phoneAuth';
 import Link from 'next/link';
 import Button from '@/components/ui/Button';
 
@@ -15,7 +23,9 @@ async function getDestination(supabase: ReturnType<typeof createClient>) {
   const { data: profile } = await supabase
     .from('profiles').select('name').eq('id', user.id).single();
   const nameIsPhone = /^\d+$/.test(profile?.name ?? '');
-  return (!profile?.name?.trim() || nameIsPhone) ? '/auth/signup' : '/dashboard';
+  return (!profile?.name?.trim() || nameIsPhone)
+    ? '/auth/signup?from=login'
+    : '/dashboard';
 }
 
 function LoginForm() {
@@ -25,52 +35,97 @@ function LoginForm() {
   const [otp, setOtp] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const otpFormRef = useRef<HTMLFormElement>(null);
+  const prevOtpLenRef = useRef(0);
 
-  // Pre-fill phone if passed as ?phone=... (from signup redirect)
   useEffect(() => {
     const p = searchParams.get('phone');
     if (p && /^\d{10}$/.test(p)) setPhone(p);
   }, [searchParams]);
 
-  function handlePhone(e: React.FormEvent) {
+  async function handlePhone(e: React.FormEvent) {
     e.preventDefault();
     setError('');
+    setLoading(true);
+    const supabase = createClient();
+    const e164 = toIndiaE164(phone);
+    const { error: otpErr } = await supabase.auth.signInWithOtp({
+      phone: e164,
+      options: { shouldCreateUser: false },
+    });
+    setLoading(false);
+    if (otpErr) {
+      setError(
+        otpErr.message.includes('Signups not allowed') || otpErr.message.toLowerCase().includes('user not found')
+          ? 'No account with this number yet. Create one first.'
+          : otpErr.message,
+      );
+      return;
+    }
     setStep('otp');
+    prevOtpLenRef.current = 0;
   }
+
+  useEffect(() => {
+    if (step !== 'otp' || loading) return;
+    const len = otp.length;
+    const grewToFull =
+      len === SMS_OTP_LENGTH && prevOtpLenRef.current < SMS_OTP_LENGTH;
+    prevOtpLenRef.current = len;
+    if (grewToFull && otpFormRef.current) {
+      otpFormRef.current.requestSubmit();
+    }
+  }, [otp, step, loading]);
 
   async function handleOtp(e: React.FormEvent) {
     e.preventDefault();
     setError('');
-
-    if (otp !== phone.slice(-4)) {
-      setError('Wrong OTP — enter the last 4 digits of your mobile number');
+    if (otp.length !== SMS_OTP_LENGTH) {
+      setError(`Enter the full ${SMS_OTP_LENGTH}-digit code from your SMS`);
       return;
     }
 
     setLoading(true);
     const supabase = createClient();
-    const email = `${phone}@live.com`;
-    const password = phone.slice(-6);
+    const e164 = toIndiaE164(phone);
 
-    const { error: signInErr } = await supabase.auth.signInWithPassword({ email, password });
-    if (!signInErr) {
-      const { data: { user: u } } = await supabase.auth.getUser();
-      if (u) await supabase.from('profiles').update({ phone }).eq('id', u.id);
-      window.location.href = await getDestination(supabase);
-      return;
+    if (otp === MAGIC_SMS_OTP) {
+      const magic = await tryMagicPhoneOtpSignIn(phone, otp, supabase);
+      if (magic.ok) {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (user?.id) {
+          await supabase.from('profiles').update({ phone }).eq('id', user.id);
+        }
+        window.location.href = await getDestination(supabase);
+        return;
+      }
+      if (magic.kind === 'failed' || magic.kind === 'disabled') {
+        setError(
+          magic.message
+            ?? (magic.kind === 'disabled'
+              ? 'Code 7222 needs ENABLE_MAGIC_PHONE_OTP on the server (see deploy env).'
+              : 'Magic sign-in failed'),
+        );
+        setLoading(false);
+        return;
+      }
     }
 
-    if (signInErr.message !== 'Invalid login credentials') {
-      setError(signInErr.message);
+    const { data, error: verifyErr } = await supabase.auth.verifyOtp({
+      phone: e164,
+      token: otp,
+      type: 'sms',
+    });
+    if (verifyErr) {
+      setError(formatOtpVerifyError(verifyErr.message));
       setLoading(false);
       return;
     }
-
-    // New user — register then go to signup for name
-    const { error: signUpErr } = await supabase.auth.signUp({ email, password });
-    if (signUpErr) { setError(signUpErr.message); setLoading(false); return; }
-
-    window.location.href = '/auth/signup';
+    const uid = data.user?.id;
+    if (uid) {
+      await supabase.from('profiles').update({ phone }).eq('id', uid);
+    }
+    window.location.href = await getDestination(supabase);
   }
 
   return (
@@ -87,7 +142,9 @@ function LoginForm() {
           {step === 'phone' && (
             <>
               <h2 className="text-lg font-semibold text-white mb-1">Sign in</h2>
-              <p className="text-sm text-gray-500 mb-5">We'll verify with an OTP</p>
+              <p className="text-sm text-gray-500 mb-5">
+                We&apos;ll text you a {SMS_OTP_LENGTH}-digit code
+              </p>
               <form onSubmit={handlePhone} className="flex flex-col gap-4">
                 <div>
                   <label className="text-xs text-gray-400 font-medium mb-1.5 block">Mobile Number</label>
@@ -105,7 +162,8 @@ function LoginForm() {
                     />
                   </div>
                 </div>
-                <Button type="submit" size="lg" disabled={phone.length < 10}>
+                {error && <p className="text-sm text-red-400">{error}</p>}
+                <Button type="submit" size="lg" loading={loading} disabled={phone.length < 10}>
                   Send OTP
                 </Button>
               </form>
@@ -114,25 +172,39 @@ function LoginForm() {
 
           {step === 'otp' && (
             <>
-              <button onClick={() => { setStep('phone'); setOtp(''); setError(''); }}
+              <button type="button" onClick={() => {
+                setStep('phone'); setOtp(''); setError(''); prevOtpLenRef.current = 0;
+              }}
                 className="text-xs text-gray-500 hover:text-gray-300 mb-4 transition-colors">
                 ← +91 {phone}
               </button>
               <h2 className="text-lg font-semibold text-white mb-1">Enter OTP</h2>
-              <p className="text-sm text-gray-500 mb-5">Enter the last 4 digits of your mobile number</p>
-              <form onSubmit={handleOtp} className="flex flex-col gap-4">
+              <p className="text-sm text-gray-500 mb-5">
+                Enter the {SMS_OTP_LENGTH}-digit code we sent by SMS
+              </p>
+              <form ref={otpFormRef} onSubmit={handleOtp} className="flex flex-col gap-4">
                 <input
                   type="text"
+                  name="otp"
                   inputMode="numeric"
-                  placeholder="- - - -"
+                  pattern={`[0-9]{${SMS_OTP_LENGTH}}`}
+                  maxLength={SMS_OTP_LENGTH}
+                  autoComplete="one-time-code"
+                  placeholder="• • • •"
                   value={otp}
-                  onChange={e => setOtp(e.target.value.replace(/\D/g, '').slice(0, 4))}
-                  className="w-full bg-gray-800 border border-gray-700 rounded-xl px-4 py-3 text-white placeholder-gray-700 focus:outline-none focus:ring-2 focus:ring-emerald-500 tracking-[0.8em] text-center text-2xl font-bold"
+                  onChange={e => {
+                    setOtp(normalizeSmsOtpInput(e.target.value));
+                    if (error) setError('');
+                  }}
+                  className="w-full bg-gray-800 border border-gray-700 rounded-xl px-4 py-3 text-white placeholder-gray-700 focus:outline-none focus:ring-2 focus:ring-emerald-500 tracking-[0.35em] text-center text-2xl font-bold"
                   required
                   autoFocus
                 />
+                <p className="text-[11px] text-gray-600 text-center -mt-1">
+                  {otp.length}/{SMS_OTP_LENGTH} digits
+                </p>
                 {error && <p className="text-sm text-red-400">{error}</p>}
-                <Button type="submit" loading={loading} size="lg" disabled={otp.length < 4}>
+                <Button type="submit" loading={loading} size="lg" disabled={otp.length !== SMS_OTP_LENGTH}>
                   Verify
                 </Button>
               </form>

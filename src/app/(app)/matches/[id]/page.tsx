@@ -90,6 +90,9 @@ export default async function MatchDetailPage({ params }: Props) {
     && adminProfile != null
     && (adminProfile as { is_admin?: boolean | null }).is_admin === true;
 
+  const canEditScoresForUi = canEditScores || viewerIsAdmin;
+  const adminOverrideCompleted = viewerIsAdmin && match.status === 'completed';
+
   const scores: MatchScore[] = match.match_scores ?? [];
   const scoreA = scores.find((s: MatchScore) => s.team_name === match.team_a_name) ?? null;
   const scoreB = scores.find((s: MatchScore) => s.team_name === match.team_b_name) ?? null;
@@ -174,14 +177,22 @@ export default async function MatchDetailPage({ params }: Props) {
 
       {/* Admin-only delete — only after the match has ended (not LIVE / upcoming). */}
       {viewerIsAdmin && match.status === 'completed' && (
-        <div className="rounded-xl border border-amber-800/60 bg-amber-950/20 px-3 py-2.5 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+        <div className="rounded-xl border border-amber-800/60 bg-amber-950/20 px-3 py-2.5 flex flex-col gap-3">
           <div>
             <p className="text-[11px] font-semibold uppercase tracking-wide text-amber-400">Admin tools</p>
             <p className="text-[11px] text-gray-500 mt-0.5">
-              Delete match removes all scores, player stats, and confirmations (database CASCADE). Shown only after the match is completed.
+              Edit scores in the scorecard below, or permanently delete the match (all scores, stats, and confirmations — CASCADE).
             </p>
           </div>
-          <AdminDeleteMatchButton matchId={match.id} />
+          <div className="flex flex-wrap gap-2 justify-end">
+            <a
+              href="#match-scorecard"
+              className="inline-flex items-center justify-center rounded-xl text-sm px-3 py-2 font-semibold bg-emerald-950/50 text-emerald-300 border border-emerald-800/60 hover:bg-emerald-900/40 transition-colors"
+            >
+              Edit scores
+            </a>
+            <AdminDeleteMatchButton matchId={match.id} />
+          </div>
         </div>
       )}
 
@@ -208,47 +219,53 @@ export default async function MatchDetailPage({ params }: Props) {
         />
       )}
 
-      {/* Scorer */}
-      {match.sport === 'cricket' && (
-        <CricketScorer
-          match={match as Match}
-          scoreA={scoreA}
-          scoreB={scoreB}
-          canEdit={canEditScores}
-          allowDisputeRecheck={allowDisputeRecheck}
-          matchPlayers={matchPlayers}
-          playerStats={playerStats}
-        />
-      )}
-      {match.sport === 'football' && (
-        <FootballScorer
-          match={match as Match}
-          scoreA={scoreA}
-          scoreB={scoreB}
-          canEdit={canEditScores}
-          allowDisputeRecheck={allowDisputeRecheck}
-        />
-      )}
-      {match.sport === 'badminton' && (
-        <BadmintonScorer
-          match={match as Match}
-          scoreA={scoreA}
-          scoreB={scoreB}
-          canEdit={canEditScores}
-          allowDisputeRecheck={allowDisputeRecheck}
-          matchPlayers={matchPlayers}
-        />
-      )}
-      {match.sport === 'table_tennis' && (
-        <TableTennisScorer
-          match={match as Match}
-          scoreA={scoreA}
-          scoreB={scoreB}
-          canEdit={canEditScores}
-          allowDisputeRecheck={allowDisputeRecheck}
-          matchPlayers={matchPlayers}
-        />
-      )}
+      {/* Scorer — anchor for admin &quot;Edit scores&quot; */}
+      <div id="match-scorecard" className="flex flex-col gap-6 scroll-mt-24">
+        {match.sport === 'cricket' && (
+          <CricketScorer
+            match={match as Match}
+            scoreA={scoreA}
+            scoreB={scoreB}
+            canEdit={canEditScoresForUi}
+            allowDisputeRecheck={allowDisputeRecheck}
+            adminOverrideCompleted={adminOverrideCompleted}
+            matchPlayers={matchPlayers}
+            playerStats={playerStats}
+          />
+        )}
+        {match.sport === 'football' && (
+          <FootballScorer
+            match={match as Match}
+            scoreA={scoreA}
+            scoreB={scoreB}
+            canEdit={canEditScoresForUi}
+            allowDisputeRecheck={allowDisputeRecheck}
+            adminOverrideCompleted={adminOverrideCompleted}
+          />
+        )}
+        {match.sport === 'badminton' && (
+          <BadmintonScorer
+            match={match as Match}
+            scoreA={scoreA}
+            scoreB={scoreB}
+            canEdit={canEditScoresForUi}
+            allowDisputeRecheck={allowDisputeRecheck}
+            adminOverrideCompleted={adminOverrideCompleted}
+            matchPlayers={matchPlayers}
+          />
+        )}
+        {match.sport === 'table_tennis' && (
+          <TableTennisScorer
+            match={match as Match}
+            scoreA={scoreA}
+            scoreB={scoreB}
+            canEdit={canEditScoresForUi}
+            allowDisputeRecheck={allowDisputeRecheck}
+            adminOverrideCompleted={adminOverrideCompleted}
+            matchPlayers={matchPlayers}
+          />
+        )}
+      </div>
 
       {/* Winner — use winner_team_name (works for ad-hoc matches too) */}
       {match.status === 'completed' && (match.winner_team_name || match.winner_team_id) && (

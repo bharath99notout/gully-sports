@@ -11,8 +11,17 @@ import { fetchPlayerDetailedStats } from '@/lib/playerDetailedStats';
 import CricketStatsSection from '@/components/CricketStatsSection';
 import FootballStatsPanel from '@/components/FootballStatsPanel';
 import RacquetStatsPanel from '@/components/RacquetStatsPanel';
-import { calcCaliber, getCaliberLabel, SportKey } from '@/lib/caliber';
+import { calcCaliber, getCaliberLabel, getPlayerTaglines, SportKey } from '@/lib/caliber';
 import { headers } from 'next/headers';
+
+function hueFromPlayerId(playerId: string): number {
+  let h = 0;
+  for (let i = 0; i < playerId.length; i++) {
+    h = (h << 5) - h + playerId.charCodeAt(i);
+    h |= 0;
+  }
+  return Math.abs(h) % 360;
+}
 
 // Public share page — re-render at most every 60s. Personal data (logged-in
 // user header) is rendered inline based on `cookies`, so dynamic rendering
@@ -162,19 +171,29 @@ export default async function PublicProfilePage({ params }: Props) {
     });
   const shareText = [`🏆 ${athleteData.name} on GullySports`, ...sportLines].join('\n');
 
+  const accentHue = hueFromPlayerId(id);
+  const displayName = (athleteData.name ?? '').trim() || 'Player';
+  const profileTaglines = getPlayerTaglines(athleteData.sportStats);
+  const totalRecorded = Object.values(athleteData.sportStats).reduce((a, s) => a + s.matches, 0);
+
   return (
     <div className="min-h-screen bg-gray-950 text-white">
-      {/* Minimal public header — show player name when viewing someone else
-          so identity is obvious even after scrolling */}
-      <div className="bg-gray-950 border-b border-gray-800 sticky top-0 z-50">
+      <div
+        className="border-b border-gray-800 sticky top-0 z-50 bg-gray-950/95 backdrop-blur-sm"
+        style={{ boxShadow: `inset 0 -1px 0 0 hsl(${accentHue} 30% 22% / 0.35)` }}
+      >
         <div className="max-w-2xl mx-auto px-4 h-14 flex items-center justify-between gap-3">
           {user && !isOwnProfile ? (
             <Link href="/players" className="flex items-center gap-2 min-w-0 group">
+              <span
+                className="w-1 self-stretch my-2 rounded-full shrink-0 opacity-90"
+                style={{ background: `linear-gradient(180deg, hsl(${accentHue} 55% 48%), hsl(${(accentHue + 40) % 360} 45% 42%))` }}
+              />
               <ArrowLeft size={16} className="text-gray-400 group-hover:text-white shrink-0" />
               <div className="min-w-0">
-                <p className="text-[10px] uppercase tracking-wider text-gray-500 leading-none">Profile</p>
+                <p className="text-[10px] uppercase tracking-wider text-amber-500/90 leading-none font-semibold">Their profile</p>
                 <p className="text-sm font-bold text-white truncate leading-tight">
-                  {athleteData.name?.trim() || 'Player'}
+                  {displayName}
                 </p>
               </div>
             </Link>
@@ -207,11 +226,90 @@ export default async function PublicProfilePage({ params }: Props) {
           />
         </div>
 
-        <AthleteCard athlete={athleteData} expandableDetails={expandableDetails} />
+        <section
+          className="rounded-2xl overflow-hidden border-2 bg-gray-950/90 shadow-2xl"
+          style={{
+            borderColor: `hsl(${accentHue} 38% 32%)`,
+            boxShadow: `0 0 0 1px hsl(${accentHue} 30% 18% / 0.45), 0 20px 50px -20px hsl(${accentHue} 35% 5% / 0.55)`,
+          }}
+        >
+          <div
+            className="h-1.5 w-full"
+            style={{
+              background: `linear-gradient(90deg, hsl(${accentHue} 55% 42%), hsl(${(accentHue + 48) % 360} 48% 50%), hsl(${(accentHue + 22) % 360} 45% 38%))`,
+            }}
+          />
+          <div className="p-5 sm:p-6 flex flex-col sm:flex-row gap-5 sm:items-center sm:gap-6">
+            <div className="shrink-0 flex justify-center sm:justify-start">
+              {profile.avatar_url ? (
+                <img
+                  src={profile.avatar_url}
+                  alt={displayName}
+                  className="w-24 h-24 sm:w-28 sm:h-28 rounded-2xl object-cover border-2 border-gray-800 shadow-lg"
+                  style={{ boxShadow: `0 0 0 2px hsl(${accentHue} 40% 28% / 0.5)` }}
+                />
+              ) : (
+                <div
+                  className="w-24 h-24 sm:w-28 sm:h-28 rounded-2xl flex items-center justify-center text-4xl sm:text-5xl font-black text-white border-2 border-gray-800"
+                  style={{
+                    background: `linear-gradient(145deg, hsl(${accentHue} 45% 38%), hsl(${(accentHue + 35) % 360} 40% 28%))`,
+                  }}
+                >
+                  {displayName.charAt(0).toUpperCase() || '?'}
+                </div>
+              )}
+            </div>
+            <div className="min-w-0 flex-1 text-center sm:text-left">
+              <nav className="text-[11px] text-gray-500 mb-2 flex flex-wrap items-center justify-center sm:justify-start gap-x-1 gap-y-0.5">
+                <Link href="/" className="text-emerald-500/90 hover:text-emerald-400 font-medium">GullySports</Link>
+                <span className="text-gray-600">/</span>
+                <span className="text-gray-300 font-medium truncate max-w-[min(100%,14rem)]">{displayName}</span>
+              </nav>
+              <p className="text-[10px] uppercase tracking-[0.2em] font-bold text-gray-400 mb-1">Public profile</p>
+              <h1 className="text-3xl sm:text-4xl font-extrabold text-white tracking-tight leading-tight truncate">
+                {displayName}
+              </h1>
+              {user && !isOwnProfile && (
+                <p className="text-xs text-amber-100/90 mt-2.5 px-3 py-2 rounded-xl bg-amber-950/40 border border-amber-800/45 text-left inline-block max-w-full">
+                  You are signed in — stats below are <span className="font-semibold text-white">{displayName}</span>
+                  . <Link href="/profile" className="underline decoration-amber-600/80 hover:text-white">Open your profile</Link>
+                </p>
+              )}
+              <p className="text-sm text-gray-500 mt-2">
+                Member since {athleteData.joinedYear}
+                {totalRecorded > 0 && (
+                  <>
+                    <span className="text-gray-600"> · </span>
+                    <span className="text-gray-300 font-medium">{totalRecorded}</span>
+                    {' '}recorded match{totalRecorded === 1 ? '' : 'es'}
+                  </>
+                )}
+              </p>
+              {profileTaglines.length > 0 && (
+                <div className="mt-3 flex flex-wrap justify-center sm:justify-start gap-1.5">
+                  {profileTaglines.map((t, i) => (
+                    <span
+                      key={i}
+                      className="text-xs px-2.5 py-1 rounded-full bg-gray-900/80 border text-gray-300"
+                      style={{ borderColor: `hsl(${accentHue} 25% 28%)` }}
+                    >
+                      {t}
+                    </span>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        </section>
+
+        <AthleteCard athlete={athleteData} expandableDetails={expandableDetails} hideIdentityBlock />
 
         {feedMatches.length > 0 && (
           <div>
-            <h2 className="text-sm font-semibold text-white mb-3">Recent Matches</h2>
+            <h2 className="text-sm font-semibold text-white mb-1">
+              Recent matches — <span className="text-emerald-400/90">{displayName}</span>
+            </h2>
+            <p className="text-xs text-gray-500 mb-3">Only matches they played in.</p>
             <div className="flex flex-col gap-3">
               {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
               {feedMatches.map((m: any) => <FeedMatchCard key={m.id} match={m} />)}

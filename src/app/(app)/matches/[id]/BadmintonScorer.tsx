@@ -11,6 +11,8 @@ interface Props {
   scoreB: MatchScore | null;
   canEdit: boolean;
   allowDisputeRecheck?: boolean;
+  /** Admin: allow editing sets on completed matches (not only dispute recheck). */
+  adminOverrideCompleted?: boolean;
   matchPlayers: MatchPlayer[];
 }
 
@@ -38,11 +40,14 @@ export default function BadmintonScorer({
   scoreB,
   canEdit,
   allowDisputeRecheck = false,
+  adminOverrideCompleted = false,
   matchPlayers: initPlayers,
 }: Props) {
   const supabase = createClient();
   const isLive = match.status === 'live';
-  const scoringActive = isLive || (match.status === 'completed' && allowDisputeRecheck);
+  const scoringActive =
+    isLive
+    || (match.status === 'completed' && (allowDisputeRecheck || adminOverrideCompleted));
   const totalSets = match.badminton_sets ?? 3;
   const target    = match.badminton_target_points ?? 21;
 
@@ -246,11 +251,13 @@ export default function BadmintonScorer({
         <div className="px-4 py-2.5 border-b border-gray-800 bg-gray-800/40 flex items-center justify-between">
           <div>
             <p className="text-[10px] text-gray-500 font-semibold uppercase tracking-widest">
-              {match.status === 'completed' && !allowDisputeRecheck
-                ? 'Final Result'
-                : scoringActive && canScore
-                  ? `Live · Set ${activeSet + 1}`
-                  : 'Setup'}
+              {adminOverrideCompleted
+                ? 'Admin · edit scores'
+                : match.status === 'completed' && !allowDisputeRecheck
+                  ? 'Final Result'
+                  : scoringActive && canScore
+                    ? `Live · Set ${activeSet + 1}`
+                    : 'Setup'}
             </p>
             <p className="text-xs text-gray-400 mt-0.5">
               Game to {target} · {totalSets === 1 ? '1 set' : `Best of ${totalSets}`}

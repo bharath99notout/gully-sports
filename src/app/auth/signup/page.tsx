@@ -1,22 +1,36 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { Suspense, useState, useEffect, useRef } from 'react';
+import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { Trophy } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
+import {
+  formatOtpVerifyError,
+  MAGIC_SMS_OTP,
+  normalizeSmsOtpInput,
+  SMS_OTP_LENGTH,
+  toIndiaE164,
+  tryMagicPhoneOtpSignIn,
+} from '@/lib/phoneAuth';
 import Button from '@/components/ui/Button';
 
 type Step = 'phone' | 'otp' | 'name' | 'loading';
 
-export default function SignupPage() {
+function SignupForm() {
+  const searchParams = useSearchParams();
+  const fromLogin = searchParams.get('from') === 'login';
+
   const [step, setStep] = useState<Step>('loading');
   const [phone, setPhone] = useState('');
   const [otp, setOtp] = useState('');
   const [name, setName] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [phoneTaken, setPhoneTaken] = useState(false);
+  const otpFormRef = useRef<HTMLFormElement>(null);
+  const prevOtpLenRef = useRef(0);
 
-  // On load: if already logged in, skip straight to name entry
   useEffect(() => {
     (async () => {
       const supabase = createClient();
@@ -28,10 +42,8 @@ export default function SignupPage() {
 
       const nameIsPhone = /^\d+$/.test(profile?.name ?? '');
       if (profile?.name?.trim() && !nameIsPhone) {
-        // Already has a real name — go to dashboard
         window.location.href = '/dashboard';
       } else {
-        // Logged in but no real name yet — show name step
         setStep('name');
       }
     })();
@@ -40,61 +52,112 @@ export default function SignupPage() {
   async function handlePhone(e: React.FormEvent) {
     e.preventDefault();
     setError('');
+    setPhoneTaken(false);
     setLoading(true);
 
-    let alreadyExists = false;
-    try {
-      // Detect existing account by attempting a silent sign-in on a detached
-      // client (persistSession:false so this never leaves a stray session).
-      const { createBrowserClient } = await import('@supabase/ssr');
-      const tempClient = createBrowserClient(
-        process.env.NEXT_PUBLIC_SUPABASE_URL!,
-        process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-        { auth: { persistSession: false, autoRefreshToken: false } }
-      );
-      const { data } = await tempClient.auth.signInWithPassword({
-        email: `${phone}@live.com`,
-        password: phone.slice(-6),
-      });
-      if (data?.user) {
-        alreadyExists = true;
-        setError('already-exists');
-        // Defensive: even with persistSession:false, @supabase/ssr may write
-        // cookies. Explicitly sign out on the MAIN client so the user isn't
-        // silently logged in as that existing account.
-        const mainClient = createClient();
-        await mainClient.auth.signOut();
-        return;
-      }
-    } catch {
-      // Network hiccup — fall through and let OTP step proceed
-    } finally {
+    const supabase = createClient();
+    const e164 = toIndiaE164(phone);
+
+    // Probe Supabase Auth itself: if the user does NOT exist, this errors with
+    // "Signups not allowed for otp" / "user not found". That's our signal to
+    // proceed with shouldCreateUser:true. If it succeeds, the number is already
+    // registered — show the "sign in instead" UI and DO NOT send a second OTP.
+    const probe = await supabase.auth.signInWithOtp({
+      phone: e164,
+      options: { shouldCreateUser: false },
+    });
+
+    if (!probe.error) {
+      setPhoneTaken(true);
       setLoading(false);
+      return;
     }
 
-    if (!alreadyExists) setStep('otp');
+    const msg = probe.error.message.toLowerCase();
+    const isNewUser =
+      msg.includes('signups not allowed') ||
+      msg.includes('user not found') ||
+      msg.includes('not found');
+
+    if (!isNewUser) {
+      setLoading(false);
+      setError(probe.error.message);
+      return;
+    }
+
+    const { error: otpErr } = await supabase.auth.signInWithOtp({
+      phone: e164,
+      options: { shouldCreateUser: true },
+    });
+    setLoading(false);
+    if (otpErr) {
+      setError(otpErr.message);
+      return;
+    }
+    setStep('otp');
+    prevOtpLenRef.current = 0;
   }
+
+  useEffect(() => {
+    if (step !== 'otp' || loading) return;
+    const len = otp.length;
+    const grewToFull =
+      len === SMS_OTP_LENGTH && prevOtpLenRef.current < SMS_OTP_LENGTH;
+    prevOtpLenRef.current = len;
+    if (grewToFull && otpFormRef.current) {
+      otpFormRef.current.requestSubmit();
+    }
+  }, [otp, step, loading]);
 
   async function handleOtp(e: React.FormEvent) {
     e.preventDefault();
     setError('');
-
-    if (otp !== phone.slice(-4)) {
-      setError('Wrong OTP — enter the last 4 digits of your mobile number');
+    if (otp.length !== SMS_OTP_LENGTH) {
+      setError(`Enter the full ${SMS_OTP_LENGTH}-digit code from your SMS`);
       return;
     }
 
     setLoading(true);
     const supabase = createClient();
-    const email = `${phone}@live.com`;
-    const password = phone.slice(-6);
+    const e164 = toIndiaE164(phone);
 
-    const { error: signUpErr } = await supabase.auth.signUp({ email, password });
+    if (otp === MAGIC_SMS_OTP) {
+      const magic = await tryMagicPhoneOtpSignIn(phone, otp, supabase);
+      if (magic.ok) {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (user?.id) {
+          await supabase.from('profiles').update({ phone }).eq('id', user.id);
+        }
+        setStep('name');
+        setLoading(false);
+        return;
+      }
+      if (magic.kind === 'failed' || magic.kind === 'disabled') {
+        setError(
+          magic.message
+            ?? (magic.kind === 'disabled'
+              ? 'Code 7222 needs ENABLE_MAGIC_PHONE_OTP on the server (see deploy env).'
+              : 'Magic sign-in failed'),
+        );
+        setLoading(false);
+        return;
+      }
+    }
 
-    if (signUpErr) {
-      // Already registered — sign in instead
-      const { error: signInErr } = await supabase.auth.signInWithPassword({ email, password });
-      if (signInErr) { setError('Could not sign in. Try the login page.'); setLoading(false); return; }
+    const { error: verifyErr } = await supabase.auth.verifyOtp({
+      phone: e164,
+      token: otp,
+      type: 'sms',
+    });
+    if (verifyErr) {
+      setError(formatOtpVerifyError(verifyErr.message));
+      setLoading(false);
+      return;
+    }
+
+    const { data: { user } } = await supabase.auth.getUser();
+    if (user?.id) {
+      await supabase.from('profiles').update({ phone }).eq('id', user.id);
     }
 
     setStep('name');
@@ -140,7 +203,9 @@ export default function SignupPage() {
           {step === 'phone' && (
             <>
               <h2 className="text-lg font-semibold text-white mb-1">Create account</h2>
-              <p className="text-sm text-gray-500 mb-5">Enter your mobile number to get started</p>
+              <p className="text-sm text-gray-500 mb-5">
+                We&apos;ll text you a {SMS_OTP_LENGTH}-digit code
+              </p>
               <form onSubmit={handlePhone} className="flex flex-col gap-4">
                 <div>
                   <label className="text-xs text-gray-400 font-medium mb-1.5 block">Mobile Number</label>
@@ -151,7 +216,11 @@ export default function SignupPage() {
                       inputMode="numeric"
                       placeholder="98765 43210"
                       value={phone}
-                      onChange={e => { setPhone(e.target.value.replace(/\D/g, '').slice(0, 10)); if (error) setError(''); }}
+                      onChange={e => {
+                        setPhone(e.target.value.replace(/\D/g, '').slice(0, 10));
+                        if (error) setError('');
+                        setPhoneTaken(false);
+                      }}
                       className="flex-1 bg-transparent px-3 py-2.5 text-sm text-white placeholder-gray-600 focus:outline-none"
                       required
                       autoFocus
@@ -159,21 +228,19 @@ export default function SignupPage() {
                   </div>
                 </div>
 
-                {error === 'already-exists' ? (
-                  <div className="bg-amber-950/30 border border-amber-800/60 rounded-xl px-3 py-2.5 flex flex-col gap-2">
-                    <p className="text-sm text-amber-300">
-                      <span className="font-semibold">This number is already registered.</span>
-                      <br />
-                      <span className="text-gray-400">Please sign in with your existing account.</span>
-                    </p>
+                {error ? <p className="text-sm text-red-400">{error}</p> : null}
+
+                {phoneTaken ? (
+                  <p className="text-sm text-amber-300 leading-relaxed">
+                    This number is already registered.{' '}
                     <Link
-                      href={`/auth/login?phone=${phone}`}
-                      className="bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-bold py-2 rounded-lg text-center transition-colors">
-                      Go to Sign In →
+                      href={`/auth/login?phone=${encodeURIComponent(phone)}`}
+                      className="text-emerald-400 font-medium underline hover:text-emerald-300"
+                    >
+                      Sign in here
                     </Link>
-                  </div>
-                ) : error ? (
-                  <p className="text-sm text-red-400">{error}</p>
+                    {' '}instead of creating a new account.
+                  </p>
                 ) : null}
 
                 <Button type="submit" size="lg" loading={loading} disabled={phone.length < 10}>
@@ -185,25 +252,39 @@ export default function SignupPage() {
 
           {step === 'otp' && (
             <>
-              <button onClick={() => { setStep('phone'); setOtp(''); setError(''); }}
+              <button type="button" onClick={() => {
+                setStep('phone'); setOtp(''); setError(''); prevOtpLenRef.current = 0;
+              }}
                 className="text-xs text-gray-500 hover:text-gray-300 mb-4 transition-colors">
                 ← +91 {phone}
               </button>
               <h2 className="text-lg font-semibold text-white mb-1">Enter OTP</h2>
-              <p className="text-sm text-gray-500 mb-5">Enter the last 4 digits of your mobile number</p>
-              <form onSubmit={handleOtp} className="flex flex-col gap-4">
+              <p className="text-sm text-gray-500 mb-5">
+                Enter the {SMS_OTP_LENGTH}-digit code we sent by SMS
+              </p>
+              <form ref={otpFormRef} onSubmit={handleOtp} className="flex flex-col gap-4">
                 <input
                   type="text"
+                  name="otp"
                   inputMode="numeric"
-                  placeholder="- - - -"
+                  pattern={`[0-9]{${SMS_OTP_LENGTH}}`}
+                  maxLength={SMS_OTP_LENGTH}
+                  autoComplete="one-time-code"
+                  placeholder="• • • •"
                   value={otp}
-                  onChange={e => setOtp(e.target.value.replace(/\D/g, '').slice(0, 4))}
-                  className="w-full bg-gray-800 border border-gray-700 rounded-xl px-4 py-3 text-white placeholder-gray-700 focus:outline-none focus:ring-2 focus:ring-emerald-500 tracking-[0.8em] text-center text-2xl font-bold"
+                  onChange={e => {
+                    setOtp(normalizeSmsOtpInput(e.target.value));
+                    if (error) setError('');
+                  }}
+                  className="w-full bg-gray-800 border border-gray-700 rounded-xl px-4 py-3 text-white placeholder-gray-700 focus:outline-none focus:ring-2 focus:ring-emerald-500 tracking-[0.35em] text-center text-2xl font-bold"
                   required
                   autoFocus
                 />
+                <p className="text-[11px] text-gray-600 text-center -mt-1">
+                  {otp.length}/{SMS_OTP_LENGTH} digits
+                </p>
                 {error && <p className="text-sm text-red-400">{error}</p>}
-                <Button type="submit" loading={loading} size="lg" disabled={otp.length < 4}>
+                <Button type="submit" loading={loading} size="lg" disabled={otp.length !== SMS_OTP_LENGTH}>
                   Verify
                 </Button>
               </form>
@@ -212,8 +293,14 @@ export default function SignupPage() {
 
           {step === 'name' && (
             <>
-              <h2 className="text-lg font-semibold text-white mb-1">What's your name?</h2>
-              <p className="text-sm text-gray-500 mb-5">Shows on your player profile</p>
+              <h2 className="text-lg font-semibold text-white mb-1">
+                {fromLogin ? 'Finish your profile' : "What's your name?"}
+              </h2>
+              <p className="text-sm text-gray-500 mb-5">
+                {fromLogin
+                  ? "You're signed in. This account doesn't have a proper display name yet (empty or phone-only). Add one to continue — it shows on matches and the leaderboard."
+                  : 'Shows on your player profile'}
+              </p>
               <form onSubmit={handleName} className="flex flex-col gap-4">
                 <div>
                   <label className="text-xs text-gray-400 font-medium mb-1.5 block">Full Name</label>
@@ -229,7 +316,7 @@ export default function SignupPage() {
                 </div>
                 {error && <p className="text-sm text-red-400">{error}</p>}
                 <Button type="submit" loading={loading} size="lg" disabled={!name.trim()}>
-                  Let's Play →
+                  {fromLogin ? 'Continue to dashboard →' : "Let's Play →"}
                 </Button>
               </form>
             </>
@@ -248,5 +335,17 @@ export default function SignupPage() {
 
       </div>
     </div>
+  );
+}
+
+export default function SignupPage() {
+  return (
+    <Suspense fallback={(
+      <div className="min-h-screen bg-gray-950 flex items-center justify-center">
+        <div className="w-8 h-8 border-2 border-emerald-500 border-t-transparent rounded-full animate-spin" />
+      </div>
+    )}>
+      <SignupForm />
+    </Suspense>
   );
 }

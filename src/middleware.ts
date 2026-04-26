@@ -10,6 +10,12 @@ export async function middleware(request: NextRequest) {
     return NextResponse.next({ request });
   }
 
+  // App Router API routes must not be redirected to /auth/login — the browser would
+  // follow the redirect and parse HTML as JSON (e.g. magic-phone-otp → "Invalid response from server").
+  if (request.nextUrl.pathname.startsWith('/api')) {
+    return NextResponse.next({ request });
+  }
+
   let supabaseResponse = NextResponse.next({ request });
 
   const supabase = createServerClient(supabaseUrl, supabaseKey!, {

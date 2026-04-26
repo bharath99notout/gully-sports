@@ -12,6 +12,7 @@ interface Props {
   scoreB: MatchScore | null;
   canEdit: boolean;
   allowDisputeRecheck?: boolean;
+  adminOverrideCompleted?: boolean;
 }
 
 function GoalCard({
@@ -68,9 +69,12 @@ export default function FootballScorer({
   scoreB,
   canEdit,
   allowDisputeRecheck = false,
+  adminOverrideCompleted = false,
 }: Props) {
   const isLive = match.status === 'live';
-  const scoringActive = isLive || (match.status === 'completed' && allowDisputeRecheck);
+  const scoringActive =
+    isLive
+    || (match.status === 'completed' && (allowDisputeRecheck || adminOverrideCompleted));
   return (
     <div className="flex flex-col gap-3">
       {allowDisputeRecheck && (
