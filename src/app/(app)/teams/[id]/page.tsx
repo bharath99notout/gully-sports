@@ -4,6 +4,7 @@ import SportBadge from '@/components/SportBadge';
 import Card from '@/components/ui/Card';
 import AddPlayerForm from './AddPlayerForm';
 import RemovePlayerButton from './RemovePlayerButton';
+import JoinTournamentSection from './JoinTournamentSection';
 import { Users } from 'lucide-react';
 
 interface Props {
@@ -63,10 +64,15 @@ export default async function TeamDetailPage({ params }: Props) {
 
         {isOwner && (
           <div className="mt-4 pt-4 border-t border-gray-800">
-            <AddPlayerForm teamId={team.id} />
+            <AddPlayerForm
+              teamId={team.id}
+              existingPlayerIds={(team.team_members ?? []).map((m: { player_id: string }) => m.player_id)}
+            />
           </div>
         )}
       </Card>
+
+      {isOwner && <JoinTournamentSection teamId={team.id} teamSport={team.sport} />}
     </div>
   );
 }

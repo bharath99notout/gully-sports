@@ -75,9 +75,15 @@ export function normalizeSmsOtpInput(raw: string): string {
   return raw.replace(/\D/g, '').slice(0, SMS_OTP_LENGTH);
 }
 
-/** User-facing copy for common `verifyOtp` failures */
+/** User-facing copy for common `verifyOtp` / `updateUser` failures */
 export function formatOtpVerifyError(message: string): string {
   const m = message.toLowerCase();
+  if (m.includes('security purposes') || m.includes('rate limit') || m.includes('too many')) {
+    const seconds = message.match(/(\d+)\s*seconds?/)?.[1];
+    return seconds
+      ? `Too many attempts. Try again in ${seconds} seconds.`
+      : 'Too many attempts. Please wait a minute and try again.';
+  }
   if (m.includes('expired') || m.includes('invalid')) {
     return 'That code is wrong or has expired. Request a new OTP and try again.';
   }
@@ -88,4 +94,22 @@ export function formatOtpVerifyError(message: string): string {
 export function toIndiaE164(digits10: string): string {
   const d = digits10.replace(/\D/g, '').slice(-10);
   return `+91${d}`;
+}
+
+/**
+ * Default OTP for users who have NOT enabled email-OTP login: last 4 digits of
+ * their own phone number. Validated client-side — no SMS is ever sent.
+ */
+export function expectedLast4Otp(phone10: string): string {
+  return phone10.replace(/\D/g, '').slice(-10).slice(-4);
+}
+
+/** Email-as-phone synthetic credential used by the legacy hack. */
+export function legacyEmailForPhone10(phone10: string): string {
+  return `${phone10.replace(/\D/g, '').slice(-10)}@live.com`;
+}
+
+/** Synthetic password for the legacy hack — last 6 digits. */
+export function legacyPasswordForPhone10(phone10: string): string {
+  return phone10.replace(/\D/g, '').slice(-10).slice(-6);
 }

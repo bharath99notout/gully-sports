@@ -4,6 +4,7 @@ import { redirect } from 'next/navigation';
 import { Bell } from 'lucide-react';
 import { listNotificationsForUser } from '@/lib/notificationsServer';
 import { markNotificationRead, markAllNotificationsRead } from '@/app/actions/notifications';
+import AutoMarkAllRead from './AutoMarkAllRead';
 
 export default async function NotificationsPage() {
   const supabase = await createClient();
@@ -15,6 +16,7 @@ export default async function NotificationsPage() {
 
   return (
     <div className="space-y-6">
+      <AutoMarkAllRead />
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-xl font-bold text-white flex items-center gap-2">

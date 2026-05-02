@@ -1,69 +1,45 @@
 'use client';
 
-import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
-import Input from '@/components/ui/Input';
-import Button from '@/components/ui/Button';
+import PlayerSearchAndAdd, { type PlayerAddResult } from '@/components/PlayerSearchAndAdd';
 
-export default function AddPlayerForm({ teamId }: { teamId: string }) {
+/**
+ * Team-page roster add. Defers all search/create UI to PlayerSearchAndAdd
+ * (the single source of truth for "find or create a player"). This wrapper
+ * just owns the side-effect: insert into team_members.
+ */
+export default function AddPlayerForm({
+  teamId,
+  existingPlayerIds = [],
+}: {
+  teamId: string;
+  existingPlayerIds?: string[];
+}) {
   const router = useRouter();
-  const [email, setEmail] = useState('');
-  const [error, setError] = useState('');
-  const [loading, setLoading] = useState(false);
 
-  async function handleAdd(e: React.FormEvent) {
-    e.preventDefault();
-    setError('');
-    setLoading(true);
+  async function addToTeam(playerId: string): Promise<PlayerAddResult> {
     const supabase = createClient();
-
-    const { data: profile } = await supabase
-      .from('profiles')
-      .select('id')
-      .eq('id', (await supabase.from('profiles').select('id').limit(1)).data?.[0]?.id ?? '')
-      .single();
-
-    // Find user by looking up auth users via profile — search by matching name or use a direct lookup
-    const { data: profiles } = await supabase
-      .from('profiles')
-      .select('id, name')
-      .ilike('name', `%${email}%`)
-      .limit(5);
-
-    if (!profiles || profiles.length === 0) {
-      setError('No player found with that name. Ask them to sign up first.');
-      setLoading(false);
-      return;
-    }
-
-    const player = profiles[0];
-    const { error: insertError } = await supabase
+    const { error } = await supabase
       .from('team_members')
-      .insert({ team_id: teamId, player_id: player.id });
-
-    if (insertError) {
-      setError(insertError.code === '23505' ? 'Player already in team' : insertError.message);
-    } else {
-      setEmail('');
-      router.refresh();
+      .insert({ team_id: teamId, player_id: playerId });
+    if (error) {
+      const msg = error.message.toLowerCase();
+      if (error.code === '23505' || msg.includes('duplicate') || msg.includes('unique')) {
+        return { ok: false, error: 'Player is already on this team.' };
+      }
+      return { ok: false, error: error.message };
     }
-    setLoading(false);
+    return { ok: true };
   }
 
   return (
-    <form onSubmit={handleAdd} className="flex gap-2 items-end">
-      <div className="flex-1">
-        <Input
-          label="Add Player by Name"
-          placeholder="Search player name..."
-          value={email}
-          onChange={e => setEmail(e.target.value)}
-          required
-        />
-      </div>
-      <Button type="submit" loading={loading} size="md">Add</Button>
-      {error && <p className="text-xs text-red-400 mt-1">{error}</p>}
-    </form>
+    <PlayerSearchAndAdd
+      onAdd={addToTeam}
+      excludePlayerIds={existingPlayerIds}
+      heading="Add player"
+      hint="Search by name or 10-digit phone. Create a new player if not found — phone numbers are never duplicated."
+      onSuccess={() => router.refresh()}
+    />
   );
 }

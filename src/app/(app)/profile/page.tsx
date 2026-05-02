@@ -2,6 +2,7 @@ import { createClient } from '@/lib/supabase/server';
 import AthleteCard from '@/components/AthleteCard';
 import AvatarUpload from '@/components/AvatarUpload';
 import EditProfileForm from './EditProfileForm';
+import EmailOtpSection from './EmailOtpSection';
 import FeedMatchCard from '@/components/FeedMatchCard';
 import { buildAthleteData, enrichStatsWithTeamNames } from '@/lib/athleteData';
 
@@ -10,7 +11,7 @@ export default async function ProfilePage() {
   const { data: { user } } = await supabase.auth.getUser();
 
   const [{ data: profile }, { data: allStats }, { data: rawMatches }, { data: myMatchPlayers }] = await Promise.all([
-    supabase.from('profiles').select('id, name, avatar_url, created_at').eq('id', user!.id).single(),
+    supabase.from('profiles').select('id, name, avatar_url, phone, created_at, email_otp_enabled').eq('id', user!.id).single(),
 
     supabase
       .from('player_match_stats')
@@ -67,8 +68,16 @@ export default async function ProfilePage() {
       />
 
       <div className="bg-gray-900 border border-gray-800 rounded-2xl p-5">
-        <h2 className="text-sm font-semibold text-white mb-4">Edit Profile</h2>
+        <h2 className="text-sm font-semibold text-white mb-4">Profile &amp; sign-in</h2>
         <EditProfileForm profile={profile} />
+        <EmailOtpSection
+          currentEmail={
+            user?.email && !user.email.toLowerCase().endsWith('@live.com')
+              ? user.email
+              : ''
+          }
+          enabled={Boolean((profile as { email_otp_enabled?: boolean } | null)?.email_otp_enabled)}
+        />
       </div>
 
       {feedMatches.length > 0 && (

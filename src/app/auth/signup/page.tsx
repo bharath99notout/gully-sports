@@ -6,16 +6,19 @@ import Link from 'next/link';
 import { Trophy } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 import {
+  expectedLast4Otp,
   formatOtpVerifyError,
-  MAGIC_SMS_OTP,
   normalizeSmsOtpInput,
   SMS_OTP_LENGTH,
-  toIndiaE164,
-  tryMagicPhoneOtpSignIn,
 } from '@/lib/phoneAuth';
 import Button from '@/components/ui/Button';
 
-type Step = 'phone' | 'otp' | 'name' | 'loading';
+type Step =
+  | 'loading'
+  | 'phone'
+  | 'otp'
+  | 'name'
+  | 'email_otp';
 
 function SignupForm() {
   const searchParams = useSearchParams();
@@ -25,6 +28,10 @@ function SignupForm() {
   const [phone, setPhone] = useState('');
   const [otp, setOtp] = useState('');
   const [name, setName] = useState('');
+  const [email, setEmail] = useState('');
+  const [emailVerified, setEmailVerified] = useState('');
+  const [emailOtp, setEmailOtp] = useState('');
+  const [emailCooldown, setEmailCooldown] = useState(0);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [phoneTaken, setPhoneTaken] = useState(false);
@@ -54,48 +61,28 @@ function SignupForm() {
     setError('');
     setPhoneTaken(false);
     setLoading(true);
+    const phone10 = phone.replace(/\D/g, '').slice(-10);
 
-    const supabase = createClient();
-    const e164 = toIndiaE164(phone);
-
-    // Probe Supabase Auth itself: if the user does NOT exist, this errors with
-    // "Signups not allowed for otp" / "user not found". That's our signal to
-    // proceed with shouldCreateUser:true. If it succeeds, the number is already
-    // registered — show the "sign in instead" UI and DO NOT send a second OTP.
-    const probe = await supabase.auth.signInWithOtp({
-      phone: e164,
-      options: { shouldCreateUser: false },
-    });
-
-    if (!probe.error) {
-      setPhoneTaken(true);
+    try {
+      const res = await fetch('/api/auth/signup-phone-check', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ phone: phone10 }),
+      });
+      const body = (await res.json().catch(() => ({}))) as { exists?: boolean; error?: string };
+      if (body.exists) {
+        setPhoneTaken(true);
+        setLoading(false);
+        return;
+      }
+      setStep('otp');
+      setOtp('');
+      prevOtpLenRef.current = 0;
       setLoading(false);
-      return;
-    }
-
-    const msg = probe.error.message.toLowerCase();
-    const isNewUser =
-      msg.includes('signups not allowed') ||
-      msg.includes('user not found') ||
-      msg.includes('not found');
-
-    if (!isNewUser) {
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Network error');
       setLoading(false);
-      setError(probe.error.message);
-      return;
     }
-
-    const { error: otpErr } = await supabase.auth.signInWithOtp({
-      phone: e164,
-      options: { shouldCreateUser: true },
-    });
-    setLoading(false);
-    if (otpErr) {
-      setError(otpErr.message);
-      return;
-    }
-    setStep('otp');
-    prevOtpLenRef.current = 0;
   }
 
   useEffect(() => {
@@ -109,45 +96,45 @@ function SignupForm() {
     }
   }, [otp, step, loading]);
 
+  useEffect(() => {
+    if (emailCooldown <= 0) return;
+    const t = setInterval(() => setEmailCooldown(c => Math.max(0, c - 1)), 1000);
+    return () => clearInterval(t);
+  }, [emailCooldown]);
+
   async function handleOtp(e: React.FormEvent) {
     e.preventDefault();
     setError('');
     if (otp.length !== SMS_OTP_LENGTH) {
-      setError(`Enter the full ${SMS_OTP_LENGTH}-digit code from your SMS`);
+      setError(`Enter the ${SMS_OTP_LENGTH}-digit OTP`);
+      return;
+    }
+    const phone10 = phone.replace(/\D/g, '').slice(-10);
+    if (otp !== expectedLast4Otp(phone10)) {
+      setError('That code is wrong. The OTP is the last 4 digits of your mobile number.');
       return;
     }
 
     setLoading(true);
-    const supabase = createClient();
-    const e164 = toIndiaE164(phone);
-
-    if (otp === MAGIC_SMS_OTP) {
-      const magic = await tryMagicPhoneOtpSignIn(phone, otp, supabase);
-      if (magic.ok) {
-        const { data: { user } } = await supabase.auth.getUser();
-        if (user?.id) {
-          await supabase.from('profiles').update({ phone }).eq('id', user.id);
-        }
-        setStep('name');
-        setLoading(false);
-        return;
-      }
-      if (magic.kind === 'failed' || magic.kind === 'disabled') {
-        setError(
-          magic.message
-            ?? (magic.kind === 'disabled'
-              ? 'Code 7222 needs ENABLE_MAGIC_PHONE_OTP on the server (see deploy env).'
-              : 'Magic sign-in failed'),
-        );
-        setLoading(false);
-        return;
-      }
+    const res = await fetch('/api/auth/last4-signup', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ phone: phone10, otp }),
+    });
+    const respBody = (await res.json().catch(() => ({}))) as {
+      token_hash?: string;
+      type?: string;
+      error?: string;
+    };
+    if (!res.ok || !respBody.token_hash) {
+      setError(respBody.error || 'Could not create account');
+      setLoading(false);
+      return;
     }
-
+    const supabase = createClient();
     const { error: verifyErr } = await supabase.auth.verifyOtp({
-      phone: e164,
-      token: otp,
-      type: 'sms',
+      token_hash: respBody.token_hash,
+      type: (respBody.type as 'magiclink' | 'email') || 'magiclink',
     });
     if (verifyErr) {
       setError(formatOtpVerifyError(verifyErr.message));
@@ -157,7 +144,7 @@ function SignupForm() {
 
     const { data: { user } } = await supabase.auth.getUser();
     if (user?.id) {
-      await supabase.from('profiles').update({ phone }).eq('id', user.id);
+      await supabase.from('profiles').update({ phone: phone10 }).eq('id', user.id);
     }
 
     setStep('name');
@@ -168,15 +155,108 @@ function SignupForm() {
     e.preventDefault();
     if (!name.trim()) return;
     setLoading(true);
+    setError('');
+
     const supabase = createClient();
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) { window.location.href = '/auth/login'; return; }
+
+    const phone10 = phone.replace(/\D/g, '').slice(-10);
     const { error: updateErr } = await supabase
       .from('profiles')
-      .update({ name: name.trim(), ...(phone ? { phone } : {}) })
+      .update({ name: name.trim(), ...(phone10 ? { phone: phone10 } : {}) })
       .eq('id', user.id);
     if (updateErr) { setError(updateErr.message); setLoading(false); return; }
+
+    const cleanEmail = email.trim().toLowerCase();
+    if (!cleanEmail) {
+      window.location.href = '/dashboard';
+      return;
+    }
+
+    // Recovery path: email already set + confirmed (e.g., user retried after a
+    // half-complete prior attempt). updateUser({email: same}) is a no-op so we
+    // skip verification and flip the flag directly.
+    const currentEmail = (user.email ?? '').toLowerCase();
+    if (currentEmail === cleanEmail && user.email_confirmed_at) {
+      const enableRes = await fetch('/api/auth/enable-email-otp', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: cleanEmail }),
+      });
+      if (!enableRes.ok) {
+        const j = await enableRes.json().catch(() => ({}));
+        setError(j.error || 'Could not enable email OTP');
+        setLoading(false);
+        return;
+      }
+      window.location.href = '/dashboard';
+      return;
+    }
+
+    const { error: emailErr } = await supabase.auth.updateUser({ email: cleanEmail });
+    if (emailErr) {
+      setError(formatOtpVerifyError(emailErr.message));
+      setLoading(false);
+      return;
+    }
+    setEmailVerified(cleanEmail);
+    setEmailOtp('');
+    setEmailCooldown(60);
+    setStep('email_otp');
+    setLoading(false);
+  }
+
+  async function handleEmailOtp(e: React.FormEvent) {
+    e.preventDefault();
+    setError('');
+    if (!emailVerified) {
+      setError('Verification session expired. Try again.');
+      return;
+    }
+    setLoading(true);
+    const supabase = createClient();
+    const { error: verifyErr } = await supabase.auth.verifyOtp({
+      email: emailVerified,
+      token: emailOtp,
+      type: 'email_change',
+    });
+    if (verifyErr) {
+      setError(formatOtpVerifyError(verifyErr.message));
+      setLoading(false);
+      return;
+    }
+
+    const enableRes = await fetch('/api/auth/enable-email-otp', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: emailVerified }),
+    });
+    if (!enableRes.ok) {
+      const j = await enableRes.json().catch(() => ({}));
+      setError(j.error || 'Could not enable email OTP');
+      setLoading(false);
+      return;
+    }
     window.location.href = '/dashboard';
+  }
+
+  function skipEmail() {
+    window.location.href = '/dashboard';
+  }
+
+  async function resendEmailOtp() {
+    if (!emailVerified || loading || emailCooldown > 0) return;
+    setError('');
+    setLoading(true);
+    const supabase = createClient();
+    const { error: updateErr } = await supabase.auth.updateUser({ email: emailVerified });
+    setLoading(false);
+    if (updateErr) {
+      setError(formatOtpVerifyError(updateErr.message));
+      return;
+    }
+    setEmailCooldown(60);
   }
 
   if (step === 'loading') {
@@ -204,7 +284,7 @@ function SignupForm() {
             <>
               <h2 className="text-lg font-semibold text-white mb-1">Create account</h2>
               <p className="text-sm text-gray-500 mb-5">
-                We&apos;ll text you a {SMS_OTP_LENGTH}-digit code
+                Enter your mobile number to get started
               </p>
               <form onSubmit={handlePhone} className="flex flex-col gap-4">
                 <div>
@@ -244,7 +324,7 @@ function SignupForm() {
                 ) : null}
 
                 <Button type="submit" size="lg" loading={loading} disabled={phone.length < 10}>
-                  Send OTP
+                  Continue
                 </Button>
               </form>
             </>
@@ -259,8 +339,11 @@ function SignupForm() {
                 ← +91 {phone}
               </button>
               <h2 className="text-lg font-semibold text-white mb-1">Enter OTP</h2>
-              <p className="text-sm text-gray-500 mb-5">
-                Enter the {SMS_OTP_LENGTH}-digit code we sent by SMS
+              <p className="text-sm text-emerald-400 mb-1 font-medium">
+                Your OTP is the last 4 digits of your mobile number.
+              </p>
+              <p className="text-xs text-gray-500 mb-5">
+                No SMS will be sent — just type the last 4 digits to continue.
               </p>
               <form ref={otpFormRef} onSubmit={handleOtp} className="flex flex-col gap-4">
                 <input
@@ -298,8 +381,8 @@ function SignupForm() {
               </h2>
               <p className="text-sm text-gray-500 mb-5">
                 {fromLogin
-                  ? "You're signed in. This account doesn't have a proper display name yet (empty or phone-only). Add one to continue — it shows on matches and the leaderboard."
-                  : 'Shows on your player profile'}
+                  ? "You're signed in. Add a display name to continue."
+                  : 'Shows on your player profile. Email is optional.'}
               </p>
               <form onSubmit={handleName} className="flex flex-col gap-4">
                 <div>
@@ -314,10 +397,75 @@ function SignupForm() {
                     autoFocus
                   />
                 </div>
+                <div>
+                  <label className="text-xs text-gray-400 font-medium mb-1.5 block">
+                    Email (optional)
+                  </label>
+                  <input
+                    type="email"
+                    placeholder="you@example.com"
+                    value={email}
+                    onChange={e => setEmail(e.target.value)}
+                    className="w-full bg-gray-800 border border-gray-700 rounded-xl px-4 py-2.5 text-sm text-white placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                  />
+                  <p className="text-[11px] text-gray-600 mt-1.5 leading-relaxed">
+                    Add an email for stronger sign-in. We&apos;ll send a code to verify it.
+                    Once enabled, the last-4-digits OTP will no longer work for your account.
+                    Skip if you prefer to keep the simple last-4 sign-in.
+                  </p>
+                </div>
                 {error && <p className="text-sm text-red-400">{error}</p>}
                 <Button type="submit" loading={loading} size="lg" disabled={!name.trim()}>
-                  {fromLogin ? 'Continue to dashboard →' : "Let's Play →"}
+                  {email.trim() ? 'Continue →' : (fromLogin ? 'Continue to dashboard →' : "Let's Play →")}
                 </Button>
+              </form>
+            </>
+          )}
+
+          {step === 'email_otp' && (
+            <>
+              <h2 className="text-lg font-semibold text-white mb-1">Verify your email</h2>
+              <p className="text-sm text-gray-500 mb-5">
+                We&apos;ve sent a 6-digit code to <span className="text-emerald-400">{emailVerified}</span>
+              </p>
+              <form onSubmit={handleEmailOtp} className="flex flex-col gap-4">
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  pattern="[0-9]{6}"
+                  maxLength={6}
+                  autoComplete="one-time-code"
+                  placeholder="••••••"
+                  value={emailOtp}
+                  onChange={e => {
+                    setEmailOtp(e.target.value.replace(/\D/g, '').slice(0, 6));
+                    if (error) setError('');
+                  }}
+                  className="w-full bg-gray-800 border border-gray-700 rounded-xl px-4 py-3 text-white placeholder-gray-700 focus:outline-none focus:ring-2 focus:ring-emerald-500 tracking-[0.35em] text-center text-2xl font-bold"
+                  required
+                  autoFocus
+                />
+                {error && <p className="text-sm text-red-400">{error}</p>}
+                <Button type="submit" loading={loading} size="lg" disabled={emailOtp.length !== 6}>
+                  Verify & enable email OTP
+                </Button>
+                <div className="flex items-center justify-between text-xs">
+                  <button
+                    type="button"
+                    onClick={resendEmailOtp}
+                    disabled={emailCooldown > 0 || loading}
+                    className="text-emerald-400 hover:text-emerald-300 disabled:text-gray-600 disabled:cursor-not-allowed transition-colors"
+                  >
+                    {emailCooldown > 0 ? `Resend in ${emailCooldown}s` : 'Resend code'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={skipEmail}
+                    className="text-gray-500 hover:text-gray-300 transition-colors"
+                  >
+                    Skip — I&apos;ll do this later
+                  </button>
+                </div>
               </form>
             </>
           )}

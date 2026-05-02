@@ -148,39 +148,19 @@ export default function BadmintonScorer({
     if (cleanPhone.length !== 10) { alert('Phone must be 10 digits'); return; }
     setBusy(true);
 
-    // Snapshot our session BEFORE any auth op — signUp auto-signs-in the new
-    // user and @supabase/ssr may clobber our session cookies.
-    const { data: { session: mySession } } = await supabase.auth.getSession();
-
     try {
-      const { data: existing } = await supabase.from('profiles')
-        .select('id, name').eq('phone', cleanPhone).maybeSingle();
-      if (existing) {
-        await addPlayer({ id: existing.id, name: existing.name || cleanName });
+      const res = await fetch('/api/auth/create-placeholder-player', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ phone: cleanPhone, name: cleanName }),
+      });
+      const body = (await res.json().catch(() => ({}))) as { id?: string; name?: string; error?: string };
+      if (!res.ok || !body.id) {
+        alert('Could not create player: ' + (body.error ?? `HTTP ${res.status}`));
         return;
       }
-      const { createBrowserClient } = await import('@supabase/ssr');
-      const tempClient = createBrowserClient(
-        process.env.NEXT_PUBLIC_SUPABASE_URL!,
-        process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-        { auth: { persistSession: false, autoRefreshToken: false } }
-      );
-      const { data: signup, error } = await tempClient.auth.signUp({
-        email: `${cleanPhone}@live.com`, password: cleanPhone.slice(-6),
-        options: { data: { name: cleanName } },
-      });
-      if (error || !signup.user) {
-        alert('Could not create player: ' + (error?.message ?? 'unknown')); return;
-      }
-      await addPlayer({ id: signup.user.id, name: cleanName });
+      await addPlayer({ id: body.id, name: body.name || cleanName });
     } finally {
-      // Restore ORIGINAL session — undo any cookie clobber from signUp
-      if (mySession) {
-        await supabase.auth.setSession({
-          access_token: mySession.access_token,
-          refresh_token: mySession.refresh_token,
-        });
-      }
       setBusy(false);
       setNewOpen(false); setNewName(''); setNewPhone('');
     }

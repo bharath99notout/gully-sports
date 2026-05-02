@@ -5,17 +5,15 @@ import { useSearchParams } from 'next/navigation';
 import { Trophy } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 import {
+  expectedLast4Otp,
   formatOtpVerifyError,
-  MAGIC_SMS_OTP,
   normalizeSmsOtpInput,
   SMS_OTP_LENGTH,
-  toIndiaE164,
-  tryMagicPhoneOtpSignIn,
 } from '@/lib/phoneAuth';
 import Link from 'next/link';
 import Button from '@/components/ui/Button';
 
-type Step = 'phone' | 'otp';
+type Step = 'phone' | 'otp_phone' | 'otp_email';
 
 async function getDestination(supabase: ReturnType<typeof createClient>) {
   const { data: { user } } = await supabase.auth.getUser();
@@ -33,6 +31,8 @@ function LoginForm() {
   const [step, setStep] = useState<Step>('phone');
   const [phone, setPhone] = useState('');
   const [otp, setOtp] = useState('');
+  const [emailHint, setEmailHint] = useState('');
+  const [emailFull, setEmailFull] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const otpFormRef = useRef<HTMLFormElement>(null);
@@ -47,27 +47,62 @@ function LoginForm() {
     e.preventDefault();
     setError('');
     setLoading(true);
-    const supabase = createClient();
-    const e164 = toIndiaE164(phone);
-    const { error: otpErr } = await supabase.auth.signInWithOtp({
-      phone: e164,
-      options: { shouldCreateUser: false },
-    });
-    setLoading(false);
-    if (otpErr) {
-      setError(
-        otpErr.message.includes('Signups not allowed') || otpErr.message.toLowerCase().includes('user not found')
-          ? 'No account with this number yet. Create one first.'
-          : otpErr.message,
-      );
-      return;
+    const phone10 = phone.replace(/\D/g, '').slice(-10);
+
+    try {
+      const res = await fetch('/api/auth/check-email-otp', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ phone: phone10 }),
+      });
+      const body = (await res.json().catch(() => ({}))) as {
+        exists?: boolean;
+        email_otp_enabled?: boolean;
+        email_hint?: string;
+      };
+
+      if (!body.exists) {
+        setError('No account with this number yet. Create one first.');
+        setLoading(false);
+        return;
+      }
+
+      if (body.email_otp_enabled) {
+        const sendRes = await fetch('/api/auth/send-email-otp', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ phone: phone10 }),
+        });
+        const sendBody = (await sendRes.json().catch(() => ({}))) as {
+          email?: string;
+          error?: string;
+        };
+        if (!sendRes.ok || !sendBody.email) {
+          setError(sendBody.error || 'Could not send email OTP');
+          setLoading(false);
+          return;
+        }
+        setEmailHint(body.email_hint ?? '');
+        setEmailFull(sendBody.email);
+        setStep('otp_email');
+        setOtp('');
+        prevOtpLenRef.current = 0;
+        setLoading(false);
+        return;
+      }
+
+      setStep('otp_phone');
+      setOtp('');
+      prevOtpLenRef.current = 0;
+      setLoading(false);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Network error');
+      setLoading(false);
     }
-    setStep('otp');
-    prevOtpLenRef.current = 0;
   }
 
   useEffect(() => {
-    if (step !== 'otp' || loading) return;
+    if ((step !== 'otp_phone' && step !== 'otp_email') || loading) return;
     const len = otp.length;
     const grewToFull =
       len === SMS_OTP_LENGTH && prevOtpLenRef.current < SMS_OTP_LENGTH;
@@ -77,53 +112,71 @@ function LoginForm() {
     }
   }, [otp, step, loading]);
 
-  async function handleOtp(e: React.FormEvent) {
+  async function handleOtpPhone(e: React.FormEvent) {
     e.preventDefault();
     setError('');
     if (otp.length !== SMS_OTP_LENGTH) {
-      setError(`Enter the full ${SMS_OTP_LENGTH}-digit code from your SMS`);
+      setError(`Enter the ${SMS_OTP_LENGTH}-digit OTP`);
+      return;
+    }
+
+    const phone10 = phone.replace(/\D/g, '').slice(-10);
+    if (otp !== expectedLast4Otp(phone10)) {
+      setError('That code is wrong. The OTP is the last 4 digits of your mobile number.');
       return;
     }
 
     setLoading(true);
-    const supabase = createClient();
-    const e164 = toIndiaE164(phone);
-
-    if (otp === MAGIC_SMS_OTP) {
-      const magic = await tryMagicPhoneOtpSignIn(phone, otp, supabase);
-      if (magic.ok) {
-        const { data: { user } } = await supabase.auth.getUser();
-        if (user?.id) {
-          await supabase.from('profiles').update({ phone }).eq('id', user.id);
-        }
-        window.location.href = await getDestination(supabase);
-        return;
-      }
-      if (magic.kind === 'failed' || magic.kind === 'disabled') {
-        setError(
-          magic.message
-            ?? (magic.kind === 'disabled'
-              ? 'Code 7222 needs ENABLE_MAGIC_PHONE_OTP on the server (see deploy env).'
-              : 'Magic sign-in failed'),
-        );
-        setLoading(false);
-        return;
-      }
+    const res = await fetch('/api/auth/last4-signin', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ phone: phone10, otp }),
+    });
+    const respBody = (await res.json().catch(() => ({}))) as {
+      token_hash?: string;
+      type?: string;
+      error?: string;
+    };
+    if (!res.ok || !respBody.token_hash) {
+      setError(respBody.error || 'Sign-in failed');
+      setLoading(false);
+      return;
     }
-
-    const { data, error: verifyErr } = await supabase.auth.verifyOtp({
-      phone: e164,
-      token: otp,
-      type: 'sms',
+    const supabase = createClient();
+    const { error: verifyErr } = await supabase.auth.verifyOtp({
+      token_hash: respBody.token_hash,
+      type: (respBody.type as 'magiclink' | 'email') || 'magiclink',
     });
     if (verifyErr) {
       setError(formatOtpVerifyError(verifyErr.message));
       setLoading(false);
       return;
     }
-    const uid = data.user?.id;
-    if (uid) {
-      await supabase.from('profiles').update({ phone }).eq('id', uid);
+    const { data: { user } } = await supabase.auth.getUser();
+    if (user?.id) {
+      await supabase.from('profiles').update({ phone: phone10 }).eq('id', user.id);
+    }
+    window.location.href = await getDestination(supabase);
+  }
+
+  async function handleOtpEmail(e: React.FormEvent) {
+    e.preventDefault();
+    setError('');
+    if (!emailFull) {
+      setError('Email session expired. Go back and re-enter your phone.');
+      return;
+    }
+    setLoading(true);
+    const supabase = createClient();
+    const { error: verifyErr } = await supabase.auth.verifyOtp({
+      email: emailFull,
+      token: otp,
+      type: 'email',
+    });
+    if (verifyErr) {
+      setError(formatOtpVerifyError(verifyErr.message));
+      setLoading(false);
+      return;
     }
     window.location.href = await getDestination(supabase);
   }
@@ -143,7 +196,7 @@ function LoginForm() {
             <>
               <h2 className="text-lg font-semibold text-white mb-1">Sign in</h2>
               <p className="text-sm text-gray-500 mb-5">
-                We&apos;ll text you a {SMS_OTP_LENGTH}-digit code
+                Enter your mobile number to continue
               </p>
               <form onSubmit={handlePhone} className="flex flex-col gap-4">
                 <div>
@@ -164,13 +217,13 @@ function LoginForm() {
                 </div>
                 {error && <p className="text-sm text-red-400">{error}</p>}
                 <Button type="submit" size="lg" loading={loading} disabled={phone.length < 10}>
-                  Send OTP
+                  Continue
                 </Button>
               </form>
             </>
           )}
 
-          {step === 'otp' && (
+          {step === 'otp_phone' && (
             <>
               <button type="button" onClick={() => {
                 setStep('phone'); setOtp(''); setError(''); prevOtpLenRef.current = 0;
@@ -179,10 +232,13 @@ function LoginForm() {
                 ← +91 {phone}
               </button>
               <h2 className="text-lg font-semibold text-white mb-1">Enter OTP</h2>
-              <p className="text-sm text-gray-500 mb-5">
-                Enter the {SMS_OTP_LENGTH}-digit code we sent by SMS
+              <p className="text-sm text-emerald-400 mb-1 font-medium">
+                Your OTP is the last 4 digits of your mobile number.
               </p>
-              <form ref={otpFormRef} onSubmit={handleOtp} className="flex flex-col gap-4">
+              <p className="text-xs text-gray-500 mb-5">
+                No SMS will be sent — just type the last 4 digits to sign in.
+              </p>
+              <form ref={otpFormRef} onSubmit={handleOtpPhone} className="flex flex-col gap-4">
                 <input
                   type="text"
                   name="otp"
@@ -205,6 +261,44 @@ function LoginForm() {
                 </p>
                 {error && <p className="text-sm text-red-400">{error}</p>}
                 <Button type="submit" loading={loading} size="lg" disabled={otp.length !== SMS_OTP_LENGTH}>
+                  Verify
+                </Button>
+              </form>
+            </>
+          )}
+
+          {step === 'otp_email' && (
+            <>
+              <button type="button" onClick={() => {
+                setStep('phone'); setOtp(''); setError(''); prevOtpLenRef.current = 0;
+              }}
+                className="text-xs text-gray-500 hover:text-gray-300 mb-4 transition-colors">
+                ← +91 {phone}
+              </button>
+              <h2 className="text-lg font-semibold text-white mb-1">Check your email</h2>
+              <p className="text-sm text-gray-500 mb-5">
+                We&apos;ve sent a 6-digit code to <span className="text-emerald-400">{emailHint}</span>
+              </p>
+              <form ref={otpFormRef} onSubmit={handleOtpEmail} className="flex flex-col gap-4">
+                <input
+                  type="text"
+                  name="otp"
+                  inputMode="numeric"
+                  pattern="[0-9]{6}"
+                  maxLength={6}
+                  autoComplete="one-time-code"
+                  placeholder="••••••"
+                  value={otp}
+                  onChange={e => {
+                    setOtp(e.target.value.replace(/\D/g, '').slice(0, 6));
+                    if (error) setError('');
+                  }}
+                  className="w-full bg-gray-800 border border-gray-700 rounded-xl px-4 py-3 text-white placeholder-gray-700 focus:outline-none focus:ring-2 focus:ring-emerald-500 tracking-[0.35em] text-center text-2xl font-bold"
+                  required
+                  autoFocus
+                />
+                {error && <p className="text-sm text-red-400">{error}</p>}
+                <Button type="submit" loading={loading} size="lg" disabled={otp.length !== 6}>
                   Verify
                 </Button>
               </form>

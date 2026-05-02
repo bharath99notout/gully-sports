@@ -336,49 +336,19 @@ export default function CricketScorer({
     if (cleanPhone.length !== 10) { alert('Phone must be 10 digits'); return; }
 
     setBusy(true);
-
-    // Snapshot our session BEFORE any auth op — signUp may clobber cookies.
-    const { data: { session: mySession } } = await supabase.auth.getSession();
-
     try {
-      // 1. If a profile with this phone already exists, just add them directly.
-      const { data: existing } = await supabase.from('profiles')
-        .select('id, name').eq('phone', cleanPhone).maybeSingle();
-      if (existing) {
-        await addPlayer({ id: existing.id, name: existing.name || cleanName, phone: cleanPhone });
-        return;
-      }
-
-      // 2. Create a new auth user WITHOUT touching the current session.
-      const { createBrowserClient } = await import('@supabase/ssr');
-      const tempClient = createBrowserClient(
-        process.env.NEXT_PUBLIC_SUPABASE_URL!,
-        process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-        { auth: { persistSession: false, autoRefreshToken: false } }
-      );
-
-      const email = `${cleanPhone}@live.com`;
-      const password = cleanPhone.slice(-6);
-      const { data: signup, error } = await tempClient.auth.signUp({
-        email, password,
-        options: { data: { name: cleanName } },
+      const res = await fetch('/api/auth/create-placeholder-player', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ phone: cleanPhone, name: cleanName }),
       });
-
-      if (error || !signup.user) {
-        alert('Could not create player: ' + (error?.message ?? 'unknown error'));
+      const body = (await res.json().catch(() => ({}))) as { id?: string; name?: string; error?: string };
+      if (!res.ok || !body.id) {
+        alert('Could not create player: ' + (body.error ?? `HTTP ${res.status}`));
         return;
       }
-
-      // 3. DB trigger auto-creates the profile with name + phone. Add to match.
-      await addPlayer({ id: signup.user.id, name: cleanName, phone: cleanPhone });
+      await addPlayer({ id: body.id, name: body.name || cleanName, phone: cleanPhone });
     } finally {
-      // Restore ORIGINAL session — undo any cookie clobber from signUp
-      if (mySession) {
-        await supabase.auth.setSession({
-          access_token: mySession.access_token,
-          refresh_token: mySession.refresh_token,
-        });
-      }
       setBusy(false);
     }
   }
