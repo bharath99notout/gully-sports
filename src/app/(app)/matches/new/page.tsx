@@ -21,6 +21,9 @@ interface PickedPlayer { id: string; name: string; }
 function NewMatchForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const tournamentIdParam = searchParams.get('tournament_id');
+  const [tournamentSport, setTournamentSport] = useState<SportType | null>(null);
+  const [tournamentName, setTournamentName] = useState<string>('');
   const [sport, setSport] = useState<SportType>((searchParams.get('sport') as SportType) ?? 'cricket');
   const [teamAName, setTeamAName] = useState('');
   const [teamBName, setTeamBName] = useState('');
@@ -50,6 +53,20 @@ function NewMatchForm() {
     }
     fetchTeams();
   }, [sport]);
+
+  useEffect(() => {
+    if (!tournamentIdParam) return;
+    (async () => {
+      const supabase = createClient();
+      const { data } = await supabase
+        .from('tournaments').select('id, name, sport').eq('id', tournamentIdParam).maybeSingle();
+      if (data) {
+        setTournamentSport(data.sport as SportType);
+        setTournamentName(data.name);
+        setSport(data.sport as SportType);
+      }
+    })();
+  }, [tournamentIdParam]);
 
   function selectTeam(teamId: string, teamName: string, slot: 'a' | 'b') {
     if (slot === 'a') { setTeamAId(teamId); setTeamAName(teamName); }
@@ -89,6 +106,7 @@ function NewMatchForm() {
       team_b_id: teamBId || null,
       status: isRacket ? 'live' : 'upcoming', // racket sports ready to score immediately
       created_by: user!.id,
+      tournament_id: tournamentIdParam || null,
     };
     if (sport === 'cricket') matchPayload.cricket_overs = parseInt(overs);
     if (sport === 'badminton') {
@@ -125,6 +143,11 @@ function NewMatchForm() {
   return (
     <div className="max-w-lg">
       <h1 className="text-2xl font-bold text-white mb-6">Create Match</h1>
+      {tournamentIdParam && tournamentName && (
+        <div className="mb-4 bg-emerald-500/10 border border-emerald-500/30 rounded-xl px-3 py-2 text-xs text-emerald-300">
+          🏆 Part of <span className="font-semibold">{tournamentName}</span>{tournamentSport ? ` · sport locked to ${tournamentSport.replace('_', ' ')}` : ''}
+        </div>
+      )}
       <Card>
         <form onSubmit={handleSubmit} className="flex flex-col gap-5">
           {/* Sport selector */}
@@ -327,35 +350,20 @@ function SidePicker({ label, players, setPlayers }: {
     if (!cleanName) { alert('Enter a name'); return; }
     if (cleanPhone.length !== 10) { alert('Phone must be 10 digits'); return; }
     setBusy(true);
-    const supabase = createClient();
-    // Snapshot our session — signUp can clobber it
-    const { data: { session: mySession } } = await supabase.auth.getSession();
 
     try {
-      const { data: existing } = await supabase.from('profiles')
-        .select('id, name').eq('phone', cleanPhone).maybeSingle();
-      if (existing) { pick({ id: existing.id, name: existing.name || cleanName }); return; }
-
-      const { createBrowserClient } = await import('@supabase/ssr');
-      const tempClient = createBrowserClient(
-        process.env.NEXT_PUBLIC_SUPABASE_URL!,
-        process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-        { auth: { persistSession: false, autoRefreshToken: false } }
-      );
-      const { data: signup, error } = await tempClient.auth.signUp({
-        email: `${cleanPhone}@live.com`, password: cleanPhone.slice(-6),
-        options: { data: { name: cleanName } },
+      const res = await fetch('/api/auth/create-placeholder-player', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ phone: cleanPhone, name: cleanName }),
       });
-      if (error || !signup.user) { alert('Could not create player: ' + (error?.message ?? 'error')); return; }
-      pick({ id: signup.user.id, name: cleanName });
-    } finally {
-      // Restore ORIGINAL session so the match creator doesn't get replaced
-      if (mySession) {
-        await supabase.auth.setSession({
-          access_token: mySession.access_token,
-          refresh_token: mySession.refresh_token,
-        });
+      const body = (await res.json().catch(() => ({}))) as { id?: string; name?: string; error?: string };
+      if (!res.ok || !body.id) {
+        alert('Could not create player: ' + (body.error ?? `HTTP ${res.status}`));
+        return;
       }
+      pick({ id: body.id, name: body.name || cleanName });
+    } finally {
       setBusy(false);
       setCreating(false); setNewName(''); setNewPhone('');
     }

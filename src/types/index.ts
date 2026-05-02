@@ -111,3 +111,42 @@ export interface PlayerStats {
   total_wickets: number;
   total_goals: number;
 }
+
+export type TournamentFormat = 'league';
+export type TournamentStatus = 'upcoming' | 'live' | 'completed';
+
+export interface Tournament {
+  id: string;
+  name: string;
+  sport: SportType;
+  format: TournamentFormat;
+  status: TournamentStatus;
+  start_date?: string | null;
+  end_date?: string | null;
+  description?: string | null;
+  created_by: string;
+  created_at: string;
+}
+
+export interface TournamentTeam {
+  tournament_id: string;
+  team_id: string;
+  joined_at: string;
+}
+
+export interface TournamentTeamPlayer {
+  id: string;
+  tournament_id: string;
+  team_id: string;
+  player_id: string;
+  added_at: string;
+}
+
+export interface TournamentAward {
+  id: string;
+  tournament_id: string;
+  award_type: string;
+  player_id: string;
+  display_value: string;
+  awarded_at: string;
+}

@@ -2,17 +2,18 @@
 
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { Trophy, Users, Calendar, User, LogOut, Menu, X, Search, Medal, Share2, ShieldCheck, Hourglass, Bell } from 'lucide-react';
+import { Trophy, Users, Calendar, User, LogOut, Menu, X, Search, Medal, Share2, ShieldCheck, Hourglass, Bell, Award } from 'lucide-react';
 import { useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
 
 const navItems = [
-  { href: '/dashboard',   label: 'Home',        icon: Trophy },
-  { href: '/matches',     label: 'Matches',     icon: Calendar },
-  { href: '/leaderboard', label: 'Leaderboard', icon: Medal },
-  { href: '/players',     label: 'Players',     icon: Search },
-  { href: '/teams',       label: 'Teams',       icon: Users },
-  { href: '/profile',     label: 'Profile',     icon: User },
+  { href: '/dashboard',    label: 'Home',        icon: Trophy },
+  { href: '/matches',      label: 'Matches',     icon: Calendar },
+  { href: '/tournaments',  label: 'Tournaments', icon: Award },
+  { href: '/leaderboard',  label: 'Leaderboard', icon: Medal },
+  { href: '/players',      label: 'Players',     icon: Search },
+  { href: '/teams',        label: 'Teams',       icon: Users },
+  { href: '/profile',      label: 'Profile',     icon: User },
 ];
 
 interface NavbarProps {
