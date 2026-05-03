@@ -492,7 +492,8 @@ function SidePicker({ label, players, setPlayers }: {
  * tournament's official roster — otherwise the match links to the tournament
  * but references teams that don't appear in standings/leaderboards.
  *
- * Free-text input is removed in this mode by design.
+ * Search-driven: each side is a button that opens a single search modal.
+ * Scales to many teams (taps stay constant — type 2-3 letters, pick).
  */
 function TournamentTeamPicker({
   teams, teamAId, teamBId, onPick,
@@ -502,6 +503,7 @@ function TournamentTeamPicker({
   teamBId: string;
   onPick: (slot: 'a' | 'b', team: Team) => void;
 }) {
+  const [openSlot, setOpenSlot] = useState<'a' | 'b' | null>(null);
   const [query, setQuery] = useState('');
 
   if (teams.length === 0) {
@@ -512,70 +514,92 @@ function TournamentTeamPicker({
     );
   }
 
-  const filtered = query.trim()
-    ? teams.filter(t => t.name.toLowerCase().includes(query.toLowerCase()))
-    : teams;
+  const teamA = teams.find(t => t.id === teamAId) ?? null;
+  const teamB = teams.find(t => t.id === teamBId) ?? null;
 
-  function pick(slot: 'a' | 'b', team: Team) {
-    // Prevent picking the same team for both sides
-    if (slot === 'a' && team.id === teamBId) return;
-    if (slot === 'b' && team.id === teamAId) return;
-    onPick(slot, team);
+  function openPicker(slot: 'a' | 'b') {
+    setQuery('');
+    setOpenSlot(slot);
+  }
+  function closePicker() {
+    setOpenSlot(null);
+    setQuery('');
+  }
+  function handlePick(team: Team) {
+    if (!openSlot) return;
+    onPick(openSlot, team);
+    closePicker();
   }
 
-  return (
-    <div className="flex flex-col gap-3">
-      {teams.length > 4 && (
-        <input
-          type="text"
-          placeholder="Search team name…"
-          value={query}
-          onChange={e => setQuery(e.target.value)}
-          className="w-full bg-gray-800 border border-gray-700 rounded-xl px-3 py-2 text-sm text-white placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-emerald-500"
-        />
-      )}
+  // Exclude the team picked for the OTHER side so the user can't self-match.
+  const otherId = openSlot === 'a' ? teamBId : teamAId;
+  const candidates = teams.filter(t => t.id !== otherId);
+  const filtered = query.trim()
+    ? candidates.filter(t => t.name.toLowerCase().includes(query.toLowerCase()))
+    : candidates;
 
-      <div className="grid grid-cols-2 gap-3">
-        {(['a', 'b'] as const).map(slot => {
-          const selectedId = slot === 'a' ? teamAId : teamBId;
-          const otherId = slot === 'a' ? teamBId : teamAId;
-          return (
-            <div key={slot}>
-              <label className="text-sm font-medium text-gray-300 block mb-2">
-                Team {slot.toUpperCase()}
-              </label>
-              <div className="flex flex-col gap-1 max-h-56 overflow-y-auto">
-                {filtered.length === 0 ? (
-                  <p className="text-xs text-gray-500">No team matches that search.</p>
-                ) : (
-                  filtered.map(t => {
-                    const isSelected = selectedId === t.id;
-                    const isTaken = otherId === t.id;
-                    return (
-                      <button
-                        key={t.id}
-                        type="button"
-                        onClick={() => !isTaken && pick(slot, t)}
-                        disabled={isTaken}
-                        className={`text-left text-sm rounded-lg px-3 py-2 border transition-colors ${
-                          isSelected
-                            ? 'bg-emerald-900/40 border-emerald-500 text-emerald-200'
-                            : isTaken
-                              ? 'border-gray-800 bg-gray-900 text-gray-700 cursor-not-allowed'
-                              : 'border-gray-700 bg-gray-800 text-white hover:border-gray-600'
-                        }`}
-                      >
-                        {t.name}
-                        {isTaken && <span className="text-[10px] ml-2 text-gray-600">(picked for other side)</span>}
-                      </button>
-                    );
-                  })
-                )}
-              </div>
+  return (
+    <div className="grid grid-cols-2 gap-3">
+      {(['a', 'b'] as const).map(slot => {
+        const selected = slot === 'a' ? teamA : teamB;
+        return (
+          <div key={slot}>
+            <label className="text-sm font-medium text-gray-300 block mb-2">
+              Team {slot.toUpperCase()}
+            </label>
+            <button
+              type="button"
+              onClick={() => openPicker(slot)}
+              className={`w-full text-left rounded-xl px-3 py-2.5 border transition-colors text-sm ${
+                selected
+                  ? 'border-emerald-500 bg-emerald-900/30 text-emerald-200'
+                  : 'border-gray-700 bg-gray-800 text-gray-400 hover:border-gray-600'
+              }`}
+            >
+              {selected ? selected.name : 'Tap to pick…'}
+            </button>
+          </div>
+        );
+      })}
+
+      {openSlot && (
+        <div className="fixed inset-0 bg-black/70 z-50 flex items-end sm:items-center justify-center p-4 col-span-2">
+          <div className="bg-gray-900 border border-gray-800 rounded-2xl w-full max-w-sm p-5 flex flex-col gap-3">
+            <h3 className="text-sm font-semibold text-white">Pick Team {openSlot.toUpperCase()}</h3>
+            <input
+              type="text"
+              autoFocus
+              placeholder="Search team name…"
+              value={query}
+              onChange={e => setQuery(e.target.value)}
+              className="w-full bg-gray-800 border border-gray-700 rounded-xl px-3 py-2.5 text-sm text-white placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+            />
+            <div className="flex flex-col gap-1 max-h-72 overflow-y-auto">
+              {filtered.length === 0 ? (
+                <p className="text-xs text-gray-500">No team matches that search.</p>
+              ) : (
+                filtered.map(t => (
+                  <button
+                    key={t.id}
+                    type="button"
+                    onClick={() => handlePick(t)}
+                    className="text-left text-sm text-white bg-gray-800 hover:bg-gray-700 rounded-lg px-3 py-2"
+                  >
+                    {t.name}
+                  </button>
+                ))
+              )}
             </div>
-          );
-        })}
-      </div>
+            <button
+              type="button"
+              onClick={closePicker}
+              className="text-xs text-gray-500 hover:text-gray-300 self-end"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
