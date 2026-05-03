@@ -97,8 +97,60 @@ export default async function MatchDetailPage({ params }: Props) {
   const scoreA = scores.find((s: MatchScore) => s.team_name === match.team_a_name) ?? null;
   const scoreB = scores.find((s: MatchScore) => s.team_name === match.team_b_name) ?? null;
 
+  // One-shot roster backfill: matches created before the team-roster snapshot
+  // landed in /matches/new have empty match_players. If the match has team IDs
+  // (cricket/football, with a real team picked) and no rows yet, pull the
+  // team's roster — tournament-specific if applicable, else the global team —
+  // and seed match_players. Idempotent because the next render won't be empty.
+  let mpRows = mp ?? [];
+  const isTeamSport = match.sport === 'cricket' || match.sport === 'football';
+  if (isTeamSport && mpRows.length === 0 && match.team_a_id && match.team_b_id && user) {
+    type RosterRow = { player_id: string; profiles: { name: string } | { name: string }[] | null };
+    const tid = match.tournament_id ?? null;
+
+    async function fetchRoster(teamId: string): Promise<RosterRow[]> {
+      if (tid) {
+        const { data } = await supabase
+          .from('tournament_team_players')
+          .select('player_id, profiles(name)')
+          .eq('tournament_id', tid).eq('team_id', teamId);
+        return (data ?? []) as RosterRow[];
+      }
+      const { data } = await supabase
+        .from('team_members')
+        .select('player_id, profiles(name)')
+        .eq('team_id', teamId);
+      return (data ?? []) as RosterRow[];
+    }
+
+    const [rosterA, rosterB] = await Promise.all([
+      fetchRoster(match.team_a_id),
+      fetchRoster(match.team_b_id),
+    ]);
+
+    const toInsert = [
+      ...rosterA.map(r => {
+        const prof = Array.isArray(r.profiles) ? r.profiles[0] : r.profiles;
+        return { match_id: id, player_id: r.player_id, team_name: match.team_a_name, name: prof?.name ?? 'Unknown' };
+      }),
+      ...rosterB.map(r => {
+        const prof = Array.isArray(r.profiles) ? r.profiles[0] : r.profiles;
+        return { match_id: id, player_id: r.player_id, team_name: match.team_b_name, name: prof?.name ?? 'Unknown' };
+      }),
+    ];
+
+    if (toInsert.length > 0) {
+      await supabase.from('match_players').insert(toInsert);
+      const { data: refreshed } = await supabase
+        .from('match_players')
+        .select('id, match_id, player_id, team_name, profiles(name)')
+        .eq('match_id', id);
+      mpRows = refreshed ?? [];
+    }
+  }
+
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const matchPlayers: MatchPlayer[] = (mp ?? []).map((p: any) => ({
+  const matchPlayers: MatchPlayer[] = (mpRows ?? []).map((p: any) => ({
     id: p.id,
     match_id: p.match_id,
     player_id: p.player_id,

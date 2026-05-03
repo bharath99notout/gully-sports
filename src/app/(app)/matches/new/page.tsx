@@ -152,11 +152,50 @@ function NewMatchForm() {
       { match_id: match.id, team_id: teamBId || null, team_name: sideBName },
     ]);
 
-    // For racket sports: also insert match_players rows
+    // For racket sports: insert match_players from the player picker.
+    // For cricket/football: snapshot the teams' rosters into match_players so
+    // the scorer's "Match Players" section opens populated. Source roster:
+    //   - Tournament context → tournament_team_players (per-tournament lineup)
+    //   - Non-tournament      → team_members (global team roster)
+    // The scorer keeps the "+ Add" button so captains can append match-day
+    // additions without re-typing the regular roster.
     if (isRacket) {
       const mpRows = [
         ...sideAPlayers.map(p => ({ match_id: match.id, player_id: p.id, team_name: sideAName })),
         ...sideBPlayers.map(p => ({ match_id: match.id, player_id: p.id, team_name: sideBName })),
+      ];
+      if (mpRows.length > 0) await supabase.from('match_players').insert(mpRows);
+    } else if (teamAId && teamBId) {
+      let rosterA: { player_id: string; profiles: { name: string } | { name: string }[] | null }[] = [];
+      let rosterB: typeof rosterA = [];
+
+      if (tournamentIdParam) {
+        const [{ data: a }, { data: b }] = await Promise.all([
+          supabase.from('tournament_team_players')
+            .select('player_id, profiles(name)')
+            .eq('tournament_id', tournamentIdParam).eq('team_id', teamAId),
+          supabase.from('tournament_team_players')
+            .select('player_id, profiles(name)')
+            .eq('tournament_id', tournamentIdParam).eq('team_id', teamBId),
+        ]);
+        rosterA = (a ?? []) as typeof rosterA;
+        rosterB = (b ?? []) as typeof rosterB;
+      } else {
+        const [{ data: a }, { data: b }] = await Promise.all([
+          supabase.from('team_members').select('player_id, profiles(name)').eq('team_id', teamAId),
+          supabase.from('team_members').select('player_id, profiles(name)').eq('team_id', teamBId),
+        ]);
+        rosterA = (a ?? []) as typeof rosterA;
+        rosterB = (b ?? []) as typeof rosterB;
+      }
+
+      const toMpRow = (r: { player_id: string; profiles: { name: string } | { name: string }[] | null }, teamName: string) => {
+        const prof = Array.isArray(r.profiles) ? r.profiles[0] : r.profiles;
+        return { match_id: match.id, player_id: r.player_id, team_name: teamName, name: prof?.name ?? 'Unknown' };
+      };
+      const mpRows = [
+        ...rosterA.map(r => toMpRow(r, sideAName)),
+        ...rosterB.map(r => toMpRow(r, sideBName)),
       ];
       if (mpRows.length > 0) await supabase.from('match_players').insert(mpRows);
     }
