@@ -394,11 +394,13 @@ type TeamCandidate = {
 function AddTeamButton({
   tournamentId, sport, isOrganizer,
 }: { tournamentId: string; sport: string; isOrganizer: boolean }) {
+  const router = useRouter();
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
   const [allTeams, setAllTeams] = useState<TeamCandidate[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [notice, setNotice] = useState('');
 
   async function openModal() {
     setError('');
@@ -471,25 +473,62 @@ function AddTeamButton({
     }
 
     // Snapshot the team's current members into tournament_team_players, but skip
-    // anyone who's already on another team in this tournament.
+    // anyone who's already on another team in this tournament. Surface the
+    // skipped names so the organizer knows WHY their roster is shorter than
+    // the team's full roster — silent skips were confusing.
     const { data: members } = await supabase
-      .from('team_members').select('player_id').eq('team_id', teamId);
+      .from('team_members')
+      .select('player_id, profiles(name)')
+      .eq('team_id', teamId);
 
-    const memberIds = (members ?? []).map((m: { player_id: string }) => m.player_id);
+    type MemberRow = { player_id: string; profiles: { name: string } | { name: string }[] | null };
+    const memberRows = ((members ?? []) as MemberRow[]).map(m => {
+      const prof = Array.isArray(m.profiles) ? m.profiles[0] : m.profiles;
+      return { player_id: m.player_id, name: prof?.name ?? 'Unknown' };
+    });
+
+    const memberIds = memberRows.map(m => m.player_id);
+    let skippedDetails: { name: string; otherTeamName: string }[] = [];
+
     if (memberIds.length > 0) {
       const { data: existing } = await supabase
         .from('tournament_team_players')
-        .select('player_id')
+        .select('player_id, team_id, teams(name)')
         .eq('tournament_id', tournamentId)
         .in('player_id', memberIds);
-      const taken = new Set((existing ?? []).map((r: { player_id: string }) => r.player_id));
-      const toInsert = memberIds
-        .filter(pid => !taken.has(pid))
-        .map(pid => ({ tournament_id: tournamentId, team_id: teamId, player_id: pid }));
+
+      type Existing = { player_id: string; team_id: string; teams: { name: string } | { name: string }[] | null };
+      const takenById = new Map<string, string>();
+      for (const row of (existing ?? []) as Existing[]) {
+        const teamObj = Array.isArray(row.teams) ? row.teams[0] : row.teams;
+        takenById.set(row.player_id, teamObj?.name ?? 'another team');
+      }
+
+      const toInsert = memberRows
+        .filter(m => !takenById.has(m.player_id))
+        .map(m => ({ tournament_id: tournamentId, team_id: teamId, player_id: m.player_id }));
+
+      skippedDetails = memberRows
+        .filter(m => takenById.has(m.player_id))
+        .map(m => ({ name: m.name, otherTeamName: takenById.get(m.player_id)! }));
+
       if (toInsert.length > 0) {
         await supabase.from('tournament_team_players').insert(toInsert);
       }
     }
+
+    if (skippedDetails.length > 0) {
+      const lines = skippedDetails
+        .map(s => `${s.name} (on ${s.otherTeamName})`)
+        .join(', ');
+      setNotice(
+        `Team added. ${skippedDetails.length} player${skippedDetails.length === 1 ? '' : 's'} skipped — already on another team in this tournament: ${lines}. Remove them from the other team if you want them here.`
+      );
+      setLoading(false);
+      router.refresh(); // partial roster appears in the team panel; modal stays open
+      return;
+    }
+
     setLoading(false);
     window.location.reload();
   }
@@ -570,6 +609,11 @@ function AddTeamButton({
         )}
 
         {error && <p className="text-sm text-red-400">{error}</p>}
+        {notice && (
+          <p className="text-xs text-amber-200 bg-amber-500/10 border border-amber-500/30 rounded-lg px-3 py-2 leading-relaxed">
+            {notice}
+          </p>
+        )}
 
         <Link
           href={createTeamHref}

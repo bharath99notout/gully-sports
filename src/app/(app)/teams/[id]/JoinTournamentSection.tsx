@@ -79,29 +79,56 @@ export default function JoinTournamentSection({
 
     // 2. Snapshot the team's current members into the tournament's roster.
     //    Skip players who already belong to another team in this tournament
-    //    (the UNIQUE(tournament_id, player_id) constraint enforces it; we
-    //    pre-filter for a clean UX so we don't get a partial-failure mid-loop).
+    //    and surface the names + which other team has them.
     const { data: members } = await supabase
-      .from('team_members').select('player_id').eq('team_id', teamId);
-    const memberIds = (members ?? []).map((m: { player_id: string }) => m.player_id);
+      .from('team_members')
+      .select('player_id, profiles(name)')
+      .eq('team_id', teamId);
 
+    type MemberRow = { player_id: string; profiles: { name: string } | { name: string }[] | null };
+    const memberRows = ((members ?? []) as MemberRow[]).map(m => {
+      const prof = Array.isArray(m.profiles) ? m.profiles[0] : m.profiles;
+      return { player_id: m.player_id, name: prof?.name ?? 'Unknown' };
+    });
+    const memberIds = memberRows.map(m => m.player_id);
+
+    let skipped: { name: string; otherTeamName: string }[] = [];
     if (memberIds.length > 0) {
       const { data: claimed } = await supabase
         .from('tournament_team_players')
-        .select('player_id')
+        .select('player_id, team_id, teams(name)')
         .eq('tournament_id', tournamentId)
         .in('player_id', memberIds);
-      const taken = new Set((claimed ?? []).map((r: { player_id: string }) => r.player_id));
-      const toInsert = memberIds
-        .filter(pid => !taken.has(pid))
-        .map(pid => ({ tournament_id: tournamentId, team_id: teamId, player_id: pid }));
+
+      type Existing = { player_id: string; team_id: string; teams: { name: string } | { name: string }[] | null };
+      const takenById = new Map<string, string>();
+      for (const row of (claimed ?? []) as Existing[]) {
+        const teamObj = Array.isArray(row.teams) ? row.teams[0] : row.teams;
+        takenById.set(row.player_id, teamObj?.name ?? 'another team');
+      }
+
+      const toInsert = memberRows
+        .filter(m => !takenById.has(m.player_id))
+        .map(m => ({ tournament_id: tournamentId, team_id: teamId, player_id: m.player_id }));
+
+      skipped = memberRows
+        .filter(m => takenById.has(m.player_id))
+        .map(m => ({ name: m.name, otherTeamName: takenById.get(m.player_id)! }));
+
       if (toInsert.length > 0) {
         await supabase.from('tournament_team_players').insert(toInsert);
       }
     }
 
     setBusy(null);
-    setInfo('Joined! Your team is now in this tournament.');
+    if (skipped.length > 0) {
+      const lines = skipped.map(s => `${s.name} (on ${s.otherTeamName})`).join(', ');
+      setInfo(
+        `Joined! ${skipped.length} player${skipped.length === 1 ? '' : 's'} skipped — already on another team in this tournament: ${lines}.`
+      );
+    } else {
+      setInfo('Joined! Your team is now in this tournament.');
+    }
     await load();
     router.refresh();
   }
