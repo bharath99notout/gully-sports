@@ -47,12 +47,32 @@ function NewMatchForm() {
     async function fetchTeams() {
       const supabase = createClient();
       const { data: { user } } = await supabase.auth.getUser();
+
+      // Tournament context: restrict teams to those officially in the tournament.
+      // Otherwise the match would link to a tournament_id but reference teams
+      // that aren't part of the tournament's roster — orphaning stats from the
+      // tournament's standings/leaderboards.
+      if (tournamentIdParam) {
+        const { data: rows } = await supabase
+          .from('tournament_teams')
+          .select('team_id, teams(id, name, sport, created_by)')
+          .eq('tournament_id', tournamentIdParam);
+        type Row = { team_id: string; teams: Team | Team[] | null };
+        const tournamentTeams = ((rows ?? []) as Row[]).map(r => {
+          const t = Array.isArray(r.teams) ? r.teams[0] : r.teams;
+          return t;
+        }).filter((t): t is Team => Boolean(t));
+        setMyTeams(tournamentTeams);
+        return;
+      }
+
+      // No tournament: ad-hoc match — show all teams I created in this sport.
       const { data } = await supabase
         .from('teams').select('*').eq('sport', sport).eq('created_by', user!.id);
       setMyTeams(data ?? []);
     }
     fetchTeams();
-  }, [sport]);
+  }, [sport, tournamentIdParam]);
 
   useEffect(() => {
     if (!tournamentIdParam) return;
@@ -92,6 +112,10 @@ function NewMatchForm() {
     } else {
       if (!teamAName.trim() || !teamBName.trim()) { setError('Team names required'); return; }
       if (teamAName === teamBName) { setError('Teams must have different names'); return; }
+      if (tournamentIdParam && (!teamAId || !teamBId)) {
+        setError('Pick both teams from the tournament roster.');
+        return;
+      }
     }
 
     setLoading(true);
@@ -267,36 +291,47 @@ function NewMatchForm() {
 
           {/* Cricket / Football team name inputs */}
           {sport !== 'badminton' && sport !== 'table_tennis' && (
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <Input label="Team A" placeholder="Team name" value={teamAName}
-                  onChange={e => { setTeamAName(e.target.value); setTeamAId(''); }} required />
-                {myTeams.length > 0 && (
-                  <div className="mt-1 flex flex-wrap gap-1">
-                    {myTeams.map(t => (
-                      <button key={t.id} type="button" onClick={() => selectTeam(t.id, t.name, 'a')}
-                        className={`text-xs px-2 py-0.5 rounded border transition-colors ${
-                          teamAId === t.id ? 'bg-emerald-900/40 border-emerald-600 text-emerald-400' : 'border-gray-700 text-gray-500 hover:border-gray-500'
-                        }`}>{t.name}</button>
-                    ))}
-                  </div>
-                )}
+            tournamentIdParam ? (
+              // Tournament context: lock both teams to the tournament's roster
+              // so player_match_stats roll up correctly into standings.
+              <TournamentTeamPicker
+                teams={myTeams}
+                teamAId={teamAId}
+                teamBId={teamBId}
+                onPick={(slot, team) => selectTeam(team.id, team.name, slot)}
+              />
+            ) : (
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <Input label="Team A" placeholder="Team name" value={teamAName}
+                    onChange={e => { setTeamAName(e.target.value); setTeamAId(''); }} required />
+                  {myTeams.length > 0 && (
+                    <div className="mt-1 flex flex-wrap gap-1">
+                      {myTeams.map(t => (
+                        <button key={t.id} type="button" onClick={() => selectTeam(t.id, t.name, 'a')}
+                          className={`text-xs px-2 py-0.5 rounded border transition-colors ${
+                            teamAId === t.id ? 'bg-emerald-900/40 border-emerald-600 text-emerald-400' : 'border-gray-700 text-gray-500 hover:border-gray-500'
+                          }`}>{t.name}</button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+                <div>
+                  <Input label="Team B" placeholder="Team name" value={teamBName}
+                    onChange={e => { setTeamBName(e.target.value); setTeamBId(''); }} required />
+                  {myTeams.length > 0 && (
+                    <div className="mt-1 flex flex-wrap gap-1">
+                      {myTeams.map(t => (
+                        <button key={t.id} type="button" onClick={() => selectTeam(t.id, t.name, 'b')}
+                          className={`text-xs px-2 py-0.5 rounded border transition-colors ${
+                            teamBId === t.id ? 'bg-emerald-900/40 border-emerald-600 text-emerald-400' : 'border-gray-700 text-gray-500 hover:border-gray-500'
+                          }`}>{t.name}</button>
+                      ))}
+                    </div>
+                  )}
+                </div>
               </div>
-              <div>
-                <Input label="Team B" placeholder="Team name" value={teamBName}
-                  onChange={e => { setTeamBName(e.target.value); setTeamBId(''); }} required />
-                {myTeams.length > 0 && (
-                  <div className="mt-1 flex flex-wrap gap-1">
-                    {myTeams.map(t => (
-                      <button key={t.id} type="button" onClick={() => selectTeam(t.id, t.name, 'b')}
-                        className={`text-xs px-2 py-0.5 rounded border transition-colors ${
-                          teamBId === t.id ? 'bg-emerald-900/40 border-emerald-600 text-emerald-400' : 'border-gray-700 text-gray-500 hover:border-gray-500'
-                        }`}>{t.name}</button>
-                    ))}
-                  </div>
-                )}
-              </div>
-            </div>
+            )
           )}
 
           {error && <p className="text-sm text-red-400">{error}</p>}
@@ -448,6 +483,99 @@ function SidePicker({ label, players, setPlayers }: {
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+/**
+ * Tournament-mode team picker. Both sides MUST be picked from the
+ * tournament's official roster — otherwise the match links to the tournament
+ * but references teams that don't appear in standings/leaderboards.
+ *
+ * Free-text input is removed in this mode by design.
+ */
+function TournamentTeamPicker({
+  teams, teamAId, teamBId, onPick,
+}: {
+  teams: Team[];
+  teamAId: string;
+  teamBId: string;
+  onPick: (slot: 'a' | 'b', team: Team) => void;
+}) {
+  const [query, setQuery] = useState('');
+
+  if (teams.length === 0) {
+    return (
+      <div className="bg-amber-500/10 border border-amber-500/30 rounded-xl p-3 text-sm text-amber-200">
+        No teams in this tournament yet. Add at least 2 teams to the tournament before creating a match.
+      </div>
+    );
+  }
+
+  const filtered = query.trim()
+    ? teams.filter(t => t.name.toLowerCase().includes(query.toLowerCase()))
+    : teams;
+
+  function pick(slot: 'a' | 'b', team: Team) {
+    // Prevent picking the same team for both sides
+    if (slot === 'a' && team.id === teamBId) return;
+    if (slot === 'b' && team.id === teamAId) return;
+    onPick(slot, team);
+  }
+
+  return (
+    <div className="flex flex-col gap-3">
+      {teams.length > 4 && (
+        <input
+          type="text"
+          placeholder="Search team name…"
+          value={query}
+          onChange={e => setQuery(e.target.value)}
+          className="w-full bg-gray-800 border border-gray-700 rounded-xl px-3 py-2 text-sm text-white placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+        />
+      )}
+
+      <div className="grid grid-cols-2 gap-3">
+        {(['a', 'b'] as const).map(slot => {
+          const selectedId = slot === 'a' ? teamAId : teamBId;
+          const otherId = slot === 'a' ? teamBId : teamAId;
+          return (
+            <div key={slot}>
+              <label className="text-sm font-medium text-gray-300 block mb-2">
+                Team {slot.toUpperCase()}
+              </label>
+              <div className="flex flex-col gap-1 max-h-56 overflow-y-auto">
+                {filtered.length === 0 ? (
+                  <p className="text-xs text-gray-500">No team matches that search.</p>
+                ) : (
+                  filtered.map(t => {
+                    const isSelected = selectedId === t.id;
+                    const isTaken = otherId === t.id;
+                    return (
+                      <button
+                        key={t.id}
+                        type="button"
+                        onClick={() => !isTaken && pick(slot, t)}
+                        disabled={isTaken}
+                        className={`text-left text-sm rounded-lg px-3 py-2 border transition-colors ${
+                          isSelected
+                            ? 'bg-emerald-900/40 border-emerald-500 text-emerald-200'
+                            : isTaken
+                              ? 'border-gray-800 bg-gray-900 text-gray-700 cursor-not-allowed'
+                              : 'border-gray-700 bg-gray-800 text-white hover:border-gray-600'
+                        }`}
+                      >
+                        {t.name}
+                        {isTaken && <span className="text-[10px] ml-2 text-gray-600">(picked for other side)</span>}
+                      </button>
+                    );
+                  })
+                )}
+              </div>
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }
