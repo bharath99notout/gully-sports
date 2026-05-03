@@ -29,7 +29,19 @@ import { createClient } from '@/lib/supabase/client';
 
 export type PlayerHit = { id: string; name: string; phone: string | null };
 
-export type PlayerAddResult = { ok: true } | { ok: false; error: string };
+/**
+ * Returned by the parent's `onAdd` callback.
+ *  - `{ ok: true }` — clean success; modal/state resets, onSuccess fires.
+ *  - `{ ok: true, warning }` — primary action succeeded but a side-effect
+ *    didn't (e.g., team add succeeded but tournament propagation hit a
+ *    constraint). Modal still resets, onSuccess fires, but warning is
+ *    surfaced briefly.
+ *  - `{ ok: false, error }` — primary action failed; error stays visible,
+ *    user can correct/retry.
+ */
+export type PlayerAddResult =
+  | { ok: true; warning?: string }
+  | { ok: false; error: string };
 
 type Props = {
   /** Called when the user picks an existing or creates a new player. Parent
@@ -105,6 +117,12 @@ export default function PlayerSearchAndAdd({
     setNewName('');
     setNewPhone('');
     setCreating(false);
+    if (result.warning) {
+      // Side-effect didn't fully apply (e.g., one of N tournaments rejected
+      // the auto-sync). Surface briefly so the parent's onSuccess can still
+      // refresh, but the user sees what didn't go through.
+      setInfo(result.warning);
+    }
     onSuccess?.();
   }
 
