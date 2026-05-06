@@ -47,6 +47,27 @@ GullySports is a mobile-first gully cricket/football/badminton scoring and playe
 
 ---
 
+## End-to-end thinking — every feature touches 4+ surfaces
+
+Before claiming a feature done, walk it through every surface it shows up on. A change that "works" in isolation but silently breaks an aggregation page is worse than a clean failure — the user thinks the system is healthy and bad data accumulates.
+
+**Always trace a feature through this checklist before reporting done:**
+
+1. **Write path** — match-creation insert, score update, roster add. Does the column actually exist on the table? `match_players` has no `name` column; including it 400s the entire INSERT silently and leaves the roster empty.
+2. **Direct read path** — the page that lists the entity (e.g. `/matches/[id]`). Same column-existence check on every embedded resource.
+3. **Aggregation read paths** — anywhere the entity rolls up. For matches: `/tournaments/[id]` (matches tab, standings, leaderboards, awards), `/dashboard`, `/leaderboard`, `/players/[id]`. **One failed embed at the SELECT level returns null for the whole row, not just the embed** — every downstream tab goes empty.
+4. **Status / state filters** — does the aggregator respect `status`, `confirmation_state`, `tournament_id`? Standings counts `status = 'completed'`; leaderboards count `player_match_stats` rows. A match in `live` with no stats is fine; a match in `completed` with broken player_match_stats fetch is invisible.
+
+**Checklist for any new column or query change:**
+- [ ] Column exists in the migration that the env actually has applied (`ls supabase/migrations/`).
+- [ ] Every `.select('… nested(…)')` lists only real columns. Verify by `curl` against the REST endpoint with the anon key — PostgREST returns `42703` for missing columns.
+- [ ] Every aggregator route (`/tournaments/*`, `/dashboard`, `/leaderboard`) renders without empty-state regressions on a match that should be there.
+- [ ] If the change writes data, `/matches/[id]` and the tournament Matches tab both show it.
+
+**Lesson — `match_players.name` (May 2026):** A roster-seed change inserted `{ player_id, team_name, name }` and the tournament page selected `match_players(player_id, team_name, name)`. The column never existed. INSERT 400'd silently → no roster on tournament matches; SELECT 42703'd → entire `matches` query returned null → tournament Matches/Standings/Leaderboard tabs all showed empty. None of this surfaced on `/matches/[id]` because that page joined names via `profiles(name)` instead. Cost: every feature touching tournament matches looked broken end-to-end. Always grep all references before adding/renaming a column-shaped field.
+
+---
+
 ## Reuse rule — never re-implement existing flows
 
 **Before adding a "search-and-pick" / "create entity" / "OTP entry" / similar UI anywhere new, check if a shared component already exists. If yes — reuse it. If no — extract the second instance into a shared component on the spot.**
@@ -73,6 +94,30 @@ Repeated UI fragments diverge over time: one search picks up phone-search, anoth
 - **First instance:** write inline. Don't preemptively extract — speculative components are usually wrong.
 - **Second instance** *or* **first time the inline copy will be visible to end users in two places:** stop, extract to `src/components/`, replace both with the shared component in the same change. Update this CLAUDE.md table.
 - **Never** ship "almost the same thing" twice. End users notice. Developers forget which copy to update.
+
+---
+
+## Offline scoring — write-ahead queue (May 2026)
+
+Scoring works without internet. Every mutation in `Cricket/Badminton/Football/TableTennis` scorers goes through **`offlineMutate()`** at [src/lib/offline/mutate.ts](src/lib/offline/mutate.ts) — never raw `supabase.from(...).update/insert/upsert/delete(...)`.
+
+**How it works:**
+- Online → run directly. On success, return.
+- Offline (or network error mid-flight) → serialize the op into IndexedDB (`gullysports_offline.pending_ops`), return optimistic success. UI banner shows pending count.
+- `online` event / 30s reconciliation tick / app load → `drainQueue()` runs FIFO with auth-session refresh, idempotency guards (409 / SQLSTATE 23505 on insert retry treated as success), backoff on transient errors, and terminal-failure surfacing in the banner.
+
+**Rules for anyone adding new scorer mutations:**
+- Always use `offlineMutate(supabase, { kind, table, values, where|onConflict }, matchId)` — never bypass it. Bypassing means the action drops silently when offline.
+- For `insert` ops on tables with a `unique` constraint (e.g. `match_players(match_id, player_id)`), generate the row `id` client-side with `crypto.randomUUID()` so the optimistic UI knows the row's primary key without round-tripping. Idempotent retries are handled by the drainer's 409 detection.
+- All updates send the **absolute** value (e.g. `runs: newRuns`) not a delta. The drainer replays ops in order; the last value for a given (table, key) wins. Don't introduce server-side `+=` updates — they'll double-apply on retry.
+- Mutations that *must* succeed before continuing (e.g. createPlaceholderPlayer via `/api/auth/create-placeholder-player`) bypass the queue intentionally — they require the server. Keep them rare and short-circuit them with a clear "needs internet" message if offline.
+- Reads (SELECTs) are **not** queued. They fail loudly when offline. Player search, profile lookup, etc. are skipped/stubbed when `navigator.onLine === false`.
+
+**Known limitations (call these out if relevant to a feature):**
+- Reload-while-offline: cached React state is lost; server still has the last-synced value, queue still has the pending ops, so on next render+drain the data lands. The user shouldn't actively reload offline — `beforeunload` shows a warning.
+- Multi-device offline scoring of the same match: last-writer-wins. We don't merge.
+- Match creation requires internet (the page that creates the match does several reads). Once a match exists, all subsequent scoring works offline.
+- Triggers (confirmation rows, notifications) only fire when the `matches.status='completed'` write reaches the server — i.e. when the queue drains. Notifications won't go out until reconnect.
 
 ---
 

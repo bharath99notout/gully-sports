@@ -6,6 +6,8 @@ export interface Profile {
   name: string;
   phone?: string;
   avatar_url?: string;
+  /** UPI VPA (e.g. 9876543210@ybl). Used by event cost split for tap-to-pay. */
+  upi_vpa?: string | null;
   created_at: string;
 }
 
@@ -149,4 +151,31 @@ export interface TournamentAward {
   player_id: string;
   display_value: string;
   awarded_at: string;
+}
+
+// ── Events (migration 023) ──────────────────────────────────────────────────
+
+export type EventStatus = 'open' | 'closed' | 'completed' | 'cancelled';
+
+export interface SportEvent {
+  id: string;
+  name: string;
+  sport: SportType;
+  host_id: string;
+  start_at: string;
+  end_at: string | null;
+  venue_name: string | null;
+  venue_map_url: string | null;
+  capacity: number | null;
+  description: string | null;
+  invite_only: boolean;
+  /** Host is actively looking for players — surfaces in the recruiting feed. */
+  recruiting: boolean;
+  status: EventStatus;
+  cancellation_reason: string | null;
+  rsvp_cutoff_at: string | null;
+  cover_image_url: string | null;
+  tournament_id: string | null;
+  created_at: string;
+  updated_at: string;
 }

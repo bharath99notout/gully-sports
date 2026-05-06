@@ -75,6 +75,13 @@ export async function POST(req: Request) {
     .update({ phone: phone10 })
     .eq('id', created.user.id);
 
+  // Guest RSVPs → player linking. If this phone had RSVP'd to any event as
+  // a guest, point those rows at the new profile so stats / cost splits /
+  // leaderboards include the user automatically.
+  await admin.from('event_rsvps')
+    .update({ player_id: created.user.id, guest_phone: null, guest_name: null })
+    .eq('guest_phone', phone10);
+
   const { data: link, error: linkErr } = await admin.auth.admin.generateLink({
     type: 'magiclink',
     email,

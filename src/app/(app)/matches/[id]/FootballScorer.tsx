@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
+import { offlineMutate } from '@/lib/offline/mutate';
 import Card from '@/components/ui/Card';
 import { Match, MatchScore } from '@/types';
 
@@ -32,7 +33,9 @@ function GoalCard({
     setGoals(newGoals);
     setSaving(true);
     const supabase = createClient();
-    await supabase.from('match_scores').update({ goals: newGoals }).eq('id', score.id);
+    await offlineMutate(supabase, {
+      kind: 'update', table: 'match_scores', values: { goals: newGoals }, where: { id: score.id },
+    }, score.match_id);
     router.refresh();
     setSaving(false);
   }

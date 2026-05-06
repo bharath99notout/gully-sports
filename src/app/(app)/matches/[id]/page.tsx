@@ -26,10 +26,13 @@ const TableTennisScorer  = dynamic(() => import('./TableTennisScorer'),  { loadi
 
 interface Props {
   params: Promise<{ id: string }>;
+  searchParams: Promise<{ edit?: string }>;
 }
 
-export default async function MatchDetailPage({ params }: Props) {
+export default async function MatchDetailPage({ params, searchParams }: Props) {
   const { id } = await params;
+  const { edit: editFlag } = await searchParams;
+  const inEditMode = editFlag === '1';
   const supabase = await createClient();
 
   // Promote any matches whose 6h auto-confirm window expired. Cheap (rate-
@@ -91,7 +94,9 @@ export default async function MatchDetailPage({ params }: Props) {
     && (adminProfile as { is_admin?: boolean | null }).is_admin === true;
 
   const canEditScoresForUi = canEditScores || viewerIsAdmin;
-  const adminOverrideCompleted = viewerIsAdmin && match.status === 'completed';
+  // Admin enters edit mode opt-in via ?edit=1 (the "Edit scores" button adds it).
+  // Without the flag, admins see the post-match IPL scorecard like everyone else.
+  const adminOverrideCompleted = viewerIsAdmin && match.status === 'completed' && inEditMode;
 
   const scores: MatchScore[] = match.match_scores ?? [];
   const scoreA = scores.find((s: MatchScore) => s.team_name === match.team_a_name) ?? null;
@@ -105,20 +110,20 @@ export default async function MatchDetailPage({ params }: Props) {
   let mpRows = mp ?? [];
   const isTeamSport = match.sport === 'cricket' || match.sport === 'football';
   if (isTeamSport && mpRows.length === 0 && match.team_a_id && match.team_b_id && user) {
-    type RosterRow = { player_id: string; profiles: { name: string } | { name: string }[] | null };
+    type RosterRow = { player_id: string };
     const tid = match.tournament_id ?? null;
 
     async function fetchRoster(teamId: string): Promise<RosterRow[]> {
       if (tid) {
         const { data } = await supabase
           .from('tournament_team_players')
-          .select('player_id, profiles(name)')
+          .select('player_id')
           .eq('tournament_id', tid).eq('team_id', teamId);
         return (data ?? []) as RosterRow[];
       }
       const { data } = await supabase
         .from('team_members')
-        .select('player_id, profiles(name)')
+        .select('player_id')
         .eq('team_id', teamId);
       return (data ?? []) as RosterRow[];
     }
@@ -128,15 +133,11 @@ export default async function MatchDetailPage({ params }: Props) {
       fetchRoster(match.team_b_id),
     ]);
 
+    // match_players has no `name` column — names come from profiles join at
+    // render time. Inserting `name` 400s and silently leaves the roster empty.
     const toInsert = [
-      ...rosterA.map(r => {
-        const prof = Array.isArray(r.profiles) ? r.profiles[0] : r.profiles;
-        return { match_id: id, player_id: r.player_id, team_name: match.team_a_name, name: prof?.name ?? 'Unknown' };
-      }),
-      ...rosterB.map(r => {
-        const prof = Array.isArray(r.profiles) ? r.profiles[0] : r.profiles;
-        return { match_id: id, player_id: r.player_id, team_name: match.team_b_name, name: prof?.name ?? 'Unknown' };
-      }),
+      ...rosterA.map(r => ({ match_id: id, player_id: r.player_id, team_name: match.team_a_name })),
+      ...rosterB.map(r => ({ match_id: id, player_id: r.player_id, team_name: match.team_b_name })),
     ];
 
     if (toInsert.length > 0) {
@@ -233,16 +234,27 @@ export default async function MatchDetailPage({ params }: Props) {
           <div>
             <p className="text-[11px] font-semibold uppercase tracking-wide text-amber-400">Admin tools</p>
             <p className="text-[11px] text-gray-500 mt-0.5">
-              Edit scores in the scorecard below, or permanently delete the match (all scores, stats, and confirmations — CASCADE).
+              {inEditMode
+                ? 'Editing scores. Exit to see the post-match scorecard.'
+                : 'Edit scores in the scorecard below, or permanently delete the match (all scores, stats, and confirmations — CASCADE).'}
             </p>
           </div>
           <div className="flex flex-wrap gap-2 justify-end">
-            <a
-              href="#match-scorecard"
-              className="inline-flex items-center justify-center rounded-xl text-sm px-3 py-2 font-semibold bg-emerald-950/50 text-emerald-300 border border-emerald-800/60 hover:bg-emerald-900/40 transition-colors"
-            >
-              Edit scores
-            </a>
+            {inEditMode ? (
+              <a
+                href={`/matches/${match.id}#match-scorecard`}
+                className="inline-flex items-center justify-center rounded-xl text-sm px-3 py-2 font-semibold bg-gray-800 text-gray-200 border border-gray-700 hover:bg-gray-700 transition-colors"
+              >
+                Done editing
+              </a>
+            ) : (
+              <a
+                href={`/matches/${match.id}?edit=1#match-scorecard`}
+                className="inline-flex items-center justify-center rounded-xl text-sm px-3 py-2 font-semibold bg-emerald-950/50 text-emerald-300 border border-emerald-800/60 hover:bg-emerald-900/40 transition-colors"
+              >
+                Edit scores
+              </a>
+            )}
             <AdminDeleteMatchButton matchId={match.id} />
           </div>
         </div>

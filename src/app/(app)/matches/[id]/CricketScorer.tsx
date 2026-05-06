@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
+import { offlineMutate } from '@/lib/offline/mutate';
 import Card from '@/components/ui/Card';
 import { Plus, X, ChevronDown, Trophy, Target } from 'lucide-react';
 import { Match, MatchScore, MatchPlayer, CricketPlayerStat } from '@/types';
@@ -115,7 +116,9 @@ export default function CricketScorer({
   }
 
   async function saveMatchState(patch: Record<string, unknown>) {
-    await supabase.from('matches').update(patch).eq('id', match.id);
+    await offlineMutate(supabase, {
+      kind: 'update', table: 'matches', values: patch, where: { id: match.id },
+    }, match.id);
   }
 
   async function upsertStat(pid: string, delta: Partial<CricketPlayerStat>) {
@@ -133,17 +136,21 @@ export default function CricketScorer({
       dismissal:     delta.dismissal ?? cur.dismissal ?? null,
     };
     setStats(p => ({ ...p, [pid]: next }));
-    await supabase.from('player_match_stats').upsert(
-      { match_id: match.id, player_id: pid, sport: 'cricket', ...next },
-      { onConflict: 'match_id,player_id' }
-    );
+    await offlineMutate(supabase, {
+      kind: 'upsert',
+      table: 'player_match_stats',
+      values: { match_id: match.id, player_id: pid, sport: 'cricket', ...next },
+      onConflict: 'match_id,player_id',
+    }, match.id);
   }
 
   async function incrementBall() {
     if (!battingScore || !battingTeam) return;
     const totalBalls = oversTooBalls(battingScore.overs_faced ?? 0) + 1;
     const newOvers = ballsToOvers(totalBalls);
-    await supabase.from('match_scores').update({ overs_faced: newOvers }).eq('id', battingScore.id);
+    await offlineMutate(supabase, {
+      kind: 'update', table: 'match_scores', values: { overs_faced: newOvers }, where: { id: battingScore.id },
+    }, match.id);
     patchScore(battingTeam, { overs_faced: newOvers });
     // End of over: reset bowler (new bowler required for next over)
     if (totalBalls % 6 === 0) {
@@ -203,7 +210,9 @@ export default function CricketScorer({
     if (!battingScore || !battingTeam || busy) return;
     setBusy(true);
     const newRuns = (battingScore.runs ?? 0) + runs;
-    await supabase.from('match_scores').update({ runs: newRuns }).eq('id', battingScore.id);
+    await offlineMutate(supabase, {
+      kind: 'update', table: 'match_scores', values: { runs: newRuns }, where: { id: battingScore.id },
+    }, match.id);
     patchScore(battingTeam, { runs: newRuns });
 
     if (!isExtra && strikerId) await upsertStat(strikerId, {
@@ -235,7 +244,9 @@ export default function CricketScorer({
     if (!battingScore || !battingTeam || busy) return;
     setBusy(true);
     const newWickets = (battingScore.wickets ?? 0) + 1;
-    await supabase.from('match_scores').update({ wickets: newWickets }).eq('id', battingScore.id);
+    await offlineMutate(supabase, {
+      kind: 'update', table: 'match_scores', values: { wickets: newWickets }, where: { id: battingScore.id },
+    }, match.id);
     patchScore(battingTeam, { wickets: newWickets });
 
     // Bowler: credit wicket (unless run out) + delivery ball
@@ -297,11 +308,16 @@ export default function CricketScorer({
     setBusy(true);
     const winnerId   = winnerSide === 'a' ? match.team_a_id   : winnerSide === 'b' ? match.team_b_id   : null;
     const winnerName = winnerSide === 'a' ? match.team_a_name : winnerSide === 'b' ? match.team_b_name : null;
-    await supabase.from('matches').update({
-      winner_team_id:   winnerId ?? null,
-      winner_team_name: winnerName ?? null,
-      status: 'completed',
-    }).eq('id', match.id);
+    await offlineMutate(supabase, {
+      kind: 'update',
+      table: 'matches',
+      values: {
+        winner_team_id:   winnerId ?? null,
+        winner_team_name: winnerName ?? null,
+        status: 'completed',
+      },
+      where: { id: match.id },
+    }, match.id);
     window.location.reload();
   }
 
@@ -320,9 +336,11 @@ export default function CricketScorer({
 
   async function addPlayer(profile: { id: string; name: string; phone?: string | null }) {
     const team = addTeam!;
-    const { error } = await supabase.from('match_players').insert({
-      match_id: match.id, player_id: profile.id, team_name: team,
-    });
+    const { error } = await offlineMutate(supabase, {
+      kind: 'insert',
+      table: 'match_players',
+      values: { match_id: match.id, player_id: profile.id, team_name: team },
+    }, match.id);
     if (!error) {
       setPlayers(p => [...p, { id: crypto.randomUUID(), match_id: match.id, player_id: profile.id, team_name: team, name: profile.name }]);
     }
@@ -354,7 +372,11 @@ export default function CricketScorer({
   }
 
   async function removePlayer(mp: MatchPlayer) {
-    await supabase.from('match_players').delete().eq('match_id', match.id).eq('player_id', mp.player_id);
+    await offlineMutate(supabase, {
+      kind: 'delete',
+      table: 'match_players',
+      where: { match_id: match.id, player_id: mp.player_id },
+    }, match.id);
     setPlayers(p => p.filter(x => x.player_id !== mp.player_id));
   }
 

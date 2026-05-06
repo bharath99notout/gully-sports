@@ -7,6 +7,7 @@ import { Award as AwardIcon, Trash2, UserPlus, Trophy } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 import Button from '@/components/ui/Button';
 import PlayerSearchAndAdd, { type PlayerAddResult } from '@/components/PlayerSearchAndAdd';
+import Leaderboard from '@/components/Leaderboard';
 import type { Leaderboards, StandingRow, PlayerAggregate } from '@/lib/tournament';
 
 type TournamentLite = {
@@ -50,13 +51,14 @@ type Props = {
   matches: MatchView[];
   standings: StandingRow[];
   leaderboards: Leaderboards;
+  aggregates: PlayerAggregate[];
   liveAwards: AwardView[];
   liveMop: PlayerAggregate | null;
   frozenAwards: FrozenAwardView[];
 };
 
 export default function TournamentTabsClient(props: Props) {
-  const { tournament, isOrganizer, teams, matches, standings, leaderboards, liveAwards, liveMop, frozenAwards } = props;
+  const { tournament, isOrganizer, teams, matches, standings, leaderboards, aggregates, liveAwards, liveMop, frozenAwards } = props;
   const [tab, setTab] = useState<Tab>('overview');
 
   return (
@@ -90,7 +92,7 @@ export default function TournamentTabsClient(props: Props) {
       )}
       {tab === 'matches'     && <MatchesTab tournament={tournament} matches={matches} isOrganizer={isOrganizer} />}
       {tab === 'standings'   && <StandingsTab standings={standings} />}
-      {tab === 'leaderboard' && <LeaderboardTab leaderboards={leaderboards} />}
+      {tab === 'leaderboard' && <LeaderboardTab leaderboards={leaderboards} aggregates={aggregates} sport={tournament.sport} />}
       {tab === 'awards'      && (
         <AwardsTab
           tournament={tournament}
@@ -276,36 +278,16 @@ function StandingsTab({ standings }: { standings: StandingRow[] }) {
   );
 }
 
-// ── Leaderboard ─────────────────────────────────────────────────────────────
-
-function LeaderboardTab({ leaderboards }: { leaderboards: Leaderboards }) {
-  if (leaderboards.primary.every(l => l.entries.length === 0)) {
-    return <p className="text-sm text-gray-500 bg-gray-900 border border-gray-800 rounded-2xl p-4 text-center">No stats yet — leaderboards build up as matches finish.</p>;
-  }
-  return (
-    <div className="flex flex-col gap-4">
-      {leaderboards.primary.map(lb => (
-        <div key={lb.key} className="bg-gray-900 border border-gray-800 rounded-2xl p-4">
-          <h3 className="text-sm font-semibold text-white mb-3">{lb.label}</h3>
-          {lb.entries.length === 0 ? (
-            <p className="text-xs text-gray-500">No data yet.</p>
-          ) : (
-            <div className="flex flex-col gap-1.5">
-              {lb.entries.map((e, i) => (
-                <div key={e.player_id} className="flex items-center gap-3 text-sm">
-                  <span className={`w-6 text-center font-mono ${
-                    i === 0 ? 'text-yellow-400' : i === 1 ? 'text-gray-300' : i === 2 ? 'text-orange-400' : 'text-gray-500'
-                  }`}>{i + 1}</span>
-                  <span className="flex-1 text-white">{e.player_name}</span>
-                  <span className="text-emerald-400 font-semibold tabular-nums">{e.display}</span>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      ))}
-    </div>
-  );
+// LeaderboardTab is just a thin wrapper around the shared <Leaderboard>
+// component so tournaments and events render identically.
+function LeaderboardTab({
+  leaderboards, aggregates, sport,
+}: {
+  leaderboards: Leaderboards;
+  aggregates: PlayerAggregate[];
+  sport: string;
+}) {
+  return <Leaderboard sport={sport} aggregates={aggregates} leaderboards={leaderboards} />;
 }
 
 // ── Awards ──────────────────────────────────────────────────────────────────

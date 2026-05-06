@@ -8,6 +8,7 @@ import Input from '@/components/ui/Input';
 import Card from '@/components/ui/Card';
 import { SportType, Team } from '@/types';
 import { UserPlus, X, Search } from 'lucide-react';
+import { recomputeEventCost } from '@/app/actions/events';
 
 const sports: { value: SportType; label: string; emoji: string }[] = [
   { value: 'cricket',      label: 'Cricket',   emoji: '🏏' },
@@ -22,8 +23,10 @@ function NewMatchForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const tournamentIdParam = searchParams.get('tournament_id');
+  const eventIdParam = searchParams.get('event_id');
   const [tournamentSport, setTournamentSport] = useState<SportType | null>(null);
   const [tournamentName, setTournamentName] = useState<string>('');
+  const [eventName, setEventName] = useState<string>('');
   const [sport, setSport] = useState<SportType>((searchParams.get('sport') as SportType) ?? 'cricket');
   const [teamAName, setTeamAName] = useState('');
   const [teamBName, setTeamBName] = useState('');
@@ -87,6 +90,22 @@ function NewMatchForm() {
       }
     })();
   }, [tournamentIdParam]);
+
+  // When created from an event, lock the sport to the event's sport so a
+  // cricket event doesn't accidentally spawn a badminton match (which would
+  // break the per-event leaderboard rollup).
+  useEffect(() => {
+    if (!eventIdParam) return;
+    (async () => {
+      const supabase = createClient();
+      const { data } = await supabase
+        .from('events').select('id, name, sport').eq('id', eventIdParam).maybeSingle();
+      if (data) {
+        setEventName(data.name);
+        setSport(data.sport as SportType);
+      }
+    })();
+  }, [eventIdParam]);
 
   function selectTeam(teamId: string, teamName: string, slot: 'a' | 'b') {
     if (slot === 'a') { setTeamAId(teamId); setTeamAName(teamName); }
@@ -166,33 +185,33 @@ function NewMatchForm() {
       ];
       if (mpRows.length > 0) await supabase.from('match_players').insert(mpRows);
     } else if (teamAId && teamBId) {
-      let rosterA: { player_id: string; profiles: { name: string } | { name: string }[] | null }[] = [];
+      let rosterA: { player_id: string }[] = [];
       let rosterB: typeof rosterA = [];
 
       if (tournamentIdParam) {
         const [{ data: a }, { data: b }] = await Promise.all([
-          supabase.from('tournament_team_players')
-            .select('player_id, profiles(name)')
+          supabase.from('tournament_team_players').select('player_id')
             .eq('tournament_id', tournamentIdParam).eq('team_id', teamAId),
-          supabase.from('tournament_team_players')
-            .select('player_id, profiles(name)')
+          supabase.from('tournament_team_players').select('player_id')
             .eq('tournament_id', tournamentIdParam).eq('team_id', teamBId),
         ]);
         rosterA = (a ?? []) as typeof rosterA;
         rosterB = (b ?? []) as typeof rosterB;
       } else {
         const [{ data: a }, { data: b }] = await Promise.all([
-          supabase.from('team_members').select('player_id, profiles(name)').eq('team_id', teamAId),
-          supabase.from('team_members').select('player_id, profiles(name)').eq('team_id', teamBId),
+          supabase.from('team_members').select('player_id').eq('team_id', teamAId),
+          supabase.from('team_members').select('player_id').eq('team_id', teamBId),
         ]);
         rosterA = (a ?? []) as typeof rosterA;
         rosterB = (b ?? []) as typeof rosterB;
       }
 
-      const toMpRow = (r: { player_id: string; profiles: { name: string } | { name: string }[] | null }, teamName: string) => {
-        const prof = Array.isArray(r.profiles) ? r.profiles[0] : r.profiles;
-        return { match_id: match.id, player_id: r.player_id, team_name: teamName, name: prof?.name ?? 'Unknown' };
-      };
+      // match_players has no `name` column — display names come from the
+      // profiles join at render time. Including `name` here makes the whole
+      // INSERT 400 with "column match_players.name does not exist", silently
+      // leaving the match's roster empty.
+      const toMpRow = (r: { player_id: string }, teamName: string) =>
+        ({ match_id: match.id, player_id: r.player_id, team_name: teamName });
       const mpRows = [
         ...rosterA.map(r => toMpRow(r, sideAName)),
         ...rosterB.map(r => toMpRow(r, sideBName)),
@@ -200,12 +219,28 @@ function NewMatchForm() {
       if (mpRows.length > 0) await supabase.from('match_players').insert(mpRows);
     }
 
-    router.push(`/matches/${match.id}`);
+    // Event link — created via match-create flow that came from /events/[id].
+    // RLS allows insert only when the caller is the event host, so this is a
+    // best-effort: a non-host using the URL still gets a match, just without
+    // the event_matches link (which is correct).
+    if (eventIdParam) {
+      await supabase.from('event_matches').insert({ event_id: eventIdParam, match_id: match.id });
+      // Auto-recompute cost split now that this match's players have joined
+      // the event. No-ops if the host hasn't set up cost yet.
+      await recomputeEventCost(eventIdParam);
+    }
+
+    router.push(eventIdParam ? `/events/${eventIdParam}` : `/matches/${match.id}`);
   }
 
   return (
     <div className="max-w-lg">
       <h1 className="text-2xl font-bold text-white mb-6">Create Match</h1>
+      {eventIdParam && eventName && (
+        <div className="mb-4 bg-emerald-500/10 border border-emerald-500/30 rounded-xl px-3 py-2 text-xs text-emerald-300">
+          📅 Match in <span className="font-semibold">{eventName}</span> — sport locked to event&apos;s
+        </div>
+      )}
       {tournamentIdParam && tournamentName && (
         <div className="mb-4 bg-emerald-500/10 border border-emerald-500/30 rounded-xl px-3 py-2 text-xs text-emerald-300">
           🏆 Part of <span className="font-semibold">{tournamentName}</span>{tournamentSport ? ` · sport locked to ${tournamentSport.replace('_', ' ')}` : ''}

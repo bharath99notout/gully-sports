@@ -2,6 +2,7 @@
 
 import { useRef, useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
+import { offlineMutate } from '@/lib/offline/mutate';
 import { Match, MatchScore, MatchPlayer } from '@/types';
 import { Minus, Plus, X, UserPlus } from 'lucide-react';
 
@@ -93,7 +94,11 @@ export default function BadmintonScorer({
 
   async function saveSets(team: 'a' | 'b', arr: number[]) {
     const scoreId = team === 'a' ? scoreA?.id : scoreB?.id;
-    if (scoreId) await supabase.from('match_scores').update({ sets: arr }).eq('id', scoreId);
+    if (scoreId) {
+      await offlineMutate(supabase, {
+        kind: 'update', table: 'match_scores', values: { sets: arr }, where: { id: scoreId },
+      }, match.id);
+    }
   }
 
   async function updatePoint(team: 'a' | 'b', idx: number, delta: number) {
@@ -132,11 +137,17 @@ export default function BadmintonScorer({
 
   async function addPlayer(profile: { id: string; name: string }) {
     const team = addTeam!;
-    const { data } = await supabase.from('match_players').insert({
-      match_id: match.id, player_id: profile.id, team_name: team,
-    }).select('id').single();
-    if (data) {
-      setPlayers(p => [...p, { id: data.id, match_id: match.id, player_id: profile.id, team_name: team, name: profile.name }]);
+    // Generate the row id client-side so the offline path doesn't have to
+    // round-trip to learn what the server picked. The DB still has its own
+    // default if `id` is omitted; supplying ours is fine.
+    const rowId = crypto.randomUUID();
+    const { error } = await offlineMutate(supabase, {
+      kind: 'insert',
+      table: 'match_players',
+      values: { id: rowId, match_id: match.id, player_id: profile.id, team_name: team },
+    }, match.id);
+    if (!error) {
+      setPlayers(p => [...p, { id: rowId, match_id: match.id, player_id: profile.id, team_name: team, name: profile.name }]);
     }
     setSearchQ(''); setSearchRes([]); setAddTeam(null);
   }
@@ -167,7 +178,11 @@ export default function BadmintonScorer({
   }
 
   async function removePlayer(mp: MatchPlayer) {
-    await supabase.from('match_players').delete().eq('match_id', match.id).eq('player_id', mp.player_id);
+    await offlineMutate(supabase, {
+      kind: 'delete',
+      table: 'match_players',
+      where: { match_id: match.id, player_id: mp.player_id },
+    }, match.id);
     setPlayers(p => p.filter(x => x.player_id !== mp.player_id));
   }
 
@@ -192,14 +207,24 @@ export default function BadmintonScorer({
       goals_scored: 0,
     }));
     if (statRows.length > 0) {
-      await supabase.from('player_match_stats').upsert(statRows, { onConflict: 'match_id,player_id' });
+      await offlineMutate(supabase, {
+        kind: 'upsert',
+        table: 'player_match_stats',
+        values: statRows,
+        onConflict: 'match_id,player_id',
+      }, match.id);
     }
 
-    await supabase.from('matches').update({
-      status: 'completed',
-      winner_team_id:   winnerId ?? null,
-      winner_team_name: winnerName,
-    }).eq('id', match.id);
+    await offlineMutate(supabase, {
+      kind: 'update',
+      table: 'matches',
+      values: {
+        status: 'completed',
+        winner_team_id:   winnerId ?? null,
+        winner_team_name: winnerName,
+      },
+      where: { id: match.id },
+    }, match.id);
     window.location.reload();
   }
 

@@ -18,6 +18,13 @@ export type RawTournamentStat = {
   catches_taken: number;
   goals_scored: number;
   points_won: number;
+  // Optional richer cricket stats — present when player_match_stats has them.
+  // Default to 0 in the aggregator; SR/Econ render '—' when divisor is 0.
+  balls_faced?: number;
+  fours?: number;
+  sixes?: number;
+  balls_bowled?: number;
+  runs_conceded?: number;
   match_winner_team_name: string | null;
 };
 
@@ -48,6 +55,13 @@ export type PlayerAggregate = {
   total_catches: number;
   total_goals: number;
   total_points: number;
+  // Richer cricket stats — derived in aggregatePlayers when raw rows include them.
+  total_balls_faced: number;
+  total_fours: number;
+  total_sixes: number;
+  total_balls_bowled: number;
+  total_runs_conceded: number;
+  highest_score: number;
   // MOP impact score per sport (computed below)
   impact: number;
 };
@@ -72,6 +86,12 @@ export function aggregatePlayers(
         total_catches: 0,
         total_goals: 0,
         total_points: 0,
+        total_balls_faced: 0,
+        total_fours: 0,
+        total_sixes: 0,
+        total_balls_bowled: 0,
+        total_runs_conceded: 0,
+        highest_score: 0,
         impact: 0,
       };
       map.set(r.player_id, agg);
@@ -85,11 +105,18 @@ export function aggregatePlayers(
         agg.wins += 1;
       }
     }
-    agg.total_runs += r.runs_scored ?? 0;
+    const runsThisMatch = r.runs_scored ?? 0;
+    agg.total_runs += runsThisMatch;
     agg.total_wickets += r.wickets_taken ?? 0;
     agg.total_catches += r.catches_taken ?? 0;
     agg.total_goals += r.goals_scored ?? 0;
     agg.total_points += r.points_won ?? 0;
+    agg.total_balls_faced += r.balls_faced ?? 0;
+    agg.total_fours += r.fours ?? 0;
+    agg.total_sixes += r.sixes ?? 0;
+    agg.total_balls_bowled += r.balls_bowled ?? 0;
+    agg.total_runs_conceded += r.runs_conceded ?? 0;
+    if (runsThisMatch > agg.highest_score) agg.highest_score = runsThisMatch;
   }
 
   // Compute MOP impact per sport

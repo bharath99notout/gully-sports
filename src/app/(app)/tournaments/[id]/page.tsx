@@ -52,7 +52,7 @@ export default async function TournamentDetailPage({ params }: { params: Promise
 
     supabase
       .from('matches')
-      .select('id, status, played_at, team_a_id, team_a_name, team_b_id, team_b_name, winner_team_id, winner_team_name, player_match_stats(player_id, team_id, runs_scored, wickets_taken, catches_taken, goals_scored, points_won, profiles(id, name)), match_players(player_id, team_name, name)')
+      .select('id, status, played_at, team_a_id, team_a_name, team_b_id, team_b_name, winner_team_id, winner_team_name, player_match_stats(player_id, team_id, runs_scored, wickets_taken, catches_taken, goals_scored, points_won, balls_faced, fours, sixes, balls_bowled, runs_conceded, profiles(id, name)), match_players(player_id, team_name)')
       .eq('tournament_id', id)
       .order('played_at', { ascending: false }),
 
@@ -113,7 +113,7 @@ export default async function TournamentDetailPage({ params }: { params: Promise
   // Build raw stats for leaderboard aggregation
   const rawStats: RawTournamentStat[] = [];
   for (const m of (matchRows ?? [])) {
-    type MatchPlayerRow = { player_id: string; team_name: string; name: string };
+    type MatchPlayerRow = { player_id: string; team_name: string };
     type StatRow = {
       player_id: string;
       team_id: string | null;
@@ -122,6 +122,11 @@ export default async function TournamentDetailPage({ params }: { params: Promise
       catches_taken: number;
       goals_scored: number;
       points_won: number;
+      balls_faced: number | null;
+      fours: number | null;
+      sixes: number | null;
+      balls_bowled: number | null;
+      runs_conceded: number | null;
       profiles: { id: string; name: string } | { id: string; name: string }[] | null;
     };
     const matchPlayers: MatchPlayerRow[] = (m.match_players as MatchPlayerRow[]) ?? [];
@@ -141,6 +146,11 @@ export default async function TournamentDetailPage({ params }: { params: Promise
         catches_taken: s.catches_taken ?? 0,
         goals_scored: s.goals_scored ?? 0,
         points_won: s.points_won ?? 0,
+        balls_faced: s.balls_faced ?? 0,
+        fours: s.fours ?? 0,
+        sixes: s.sixes ?? 0,
+        balls_bowled: s.balls_bowled ?? 0,
+        runs_conceded: s.runs_conceded ?? 0,
         match_winner_team_name: m.winner_team_name,
       });
     }
@@ -229,6 +239,7 @@ export default async function TournamentDetailPage({ params }: { params: Promise
         matches={matches}
         standings={standings}
         leaderboards={leaderboards}
+        aggregates={aggregates}
         liveAwards={liveAwards}
         liveMop={liveMop}
         frozenAwards={frozenAwards}
