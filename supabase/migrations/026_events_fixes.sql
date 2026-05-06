@@ -10,14 +10,20 @@
 --      profile-RSVPs (guest_phone NULL) still coexist correctly.
 -- ============================================================================
 
-DROP INDEX IF EXISTS public.event_rsvps_event_player_uk;
-DROP INDEX IF EXISTS public.event_rsvps_event_phone_uk;
-
--- Drop the constraints first if a previous run created them (so this file
--- is safe to re-apply). ALTER TABLE ... DROP CONSTRAINT IF EXISTS is
--- supported in Postgres 9.5+.
+-- Order matters when this file is re-run:
+--   1. Drop the constraints first. Postgres auto-drops the backing index
+--      created by ADD CONSTRAINT ... UNIQUE — without this step, the
+--      DROP INDEX below fails with "cannot drop index because constraint
+--      requires it" (SQLSTATE 2BP01).
+--   2. Drop the standalone partial indexes left over from migration 024
+--      (only relevant on first run — DROP IF EXISTS is a no-op once the
+--      constraint owns the index of the same name).
+--   3. Re-create the constraints clean.
 ALTER TABLE public.event_rsvps DROP CONSTRAINT IF EXISTS event_rsvps_event_player_uk;
 ALTER TABLE public.event_rsvps DROP CONSTRAINT IF EXISTS event_rsvps_event_phone_uk;
+
+DROP INDEX IF EXISTS public.event_rsvps_event_player_uk;
+DROP INDEX IF EXISTS public.event_rsvps_event_phone_uk;
 
 ALTER TABLE public.event_rsvps
   ADD CONSTRAINT event_rsvps_event_player_uk UNIQUE (event_id, player_id);
