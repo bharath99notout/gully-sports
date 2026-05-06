@@ -4,6 +4,7 @@ import { useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import { Check, HelpCircle, X, Share2, Loader2, LogOut } from 'lucide-react';
 import { rsvpToEvent, dropOwnRsvp } from '@/app/actions/events';
+import { formatEventDateTime } from '@/lib/formatDateTime';
 
 interface Props {
   eventId: string;
@@ -23,13 +24,6 @@ interface Props {
 const SPORT_LABEL: Record<string, string> = {
   cricket: 'Cricket', football: 'Football', badminton: 'Badminton', table_tennis: 'Table Tennis',
 };
-
-function formatStart(iso: string): string {
-  return new Date(iso).toLocaleString('en-IN', {
-    weekday: 'short', day: 'numeric', month: 'short',
-    hour: 'numeric', minute: '2-digit', hour12: true,
-  });
-}
 
 /**
  * RSVP buttons + WhatsApp share. Combined because they're the two actions
@@ -72,7 +66,7 @@ export default function EventActions({
     const url = `${window.location.origin}/events/${eventId}`;
     const lines = [
       `📅 ${eventName}`,
-      `${SPORT_LABEL[sport] ?? sport} · ${formatStart(startAtISO)}`,
+      `${SPORT_LABEL[sport] ?? sport} · ${formatEventDateTime(startAtISO)}`,
       venueName ? `📍 ${venueName}` : null,
       capacity
         ? `${goingCount}/${capacity} confirmed${goingCount < capacity ? ` · ${capacity - goingCount} spots open` : ' · waitlist'}`

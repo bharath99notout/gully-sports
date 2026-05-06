@@ -60,13 +60,19 @@ export async function listEvents(opts: ListEventsOpts = {}): Promise<EventListRo
     if (myEventIds.length === 0) return [];
   }
 
+  // Ordering: most-recently-created first (created_at DESC). A captain who
+  // just made a new event expects to see it at the top of the feed; the
+  // earlier "soonest start_at" sort buried fresh creations under whatever
+  // happens to start sooner. Past tab keeps the same direction so people
+  // see "what was created most recently in the past" — easier to find a
+  // game from last weekend than to scroll years deep by start_at.
   let query = supabase
     .from('events')
     .select(`
       id, name, sport, start_at, venue_name, capacity,
       invite_only, recruiting, status, host_id
     `)
-    .order('start_at', { ascending: when === 'upcoming' })
+    .order('created_at', { ascending: false })
     .limit(limit);
 
   if (when === 'upcoming') {

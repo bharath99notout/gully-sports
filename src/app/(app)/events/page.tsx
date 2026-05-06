@@ -2,6 +2,7 @@ import Link from 'next/link';
 import { CalendarDays, MapPin, Plus, Users, Flame } from 'lucide-react';
 import { listEvents, type EventListRow, type ListEventsOpts } from '@/lib/eventsServer';
 import { createClient } from '@/lib/supabase/server';
+import { formatEventDateTime } from '@/lib/formatDateTime';
 import type { SportType } from '@/types';
 
 const SPORT_EMOJI: Record<SportType, string> = {
@@ -14,13 +15,6 @@ const SPORT_LABEL: Record<SportType, string> = {
 
 const SPORTS: SportType[] = ['cricket', 'football', 'badminton', 'table_tennis'];
 
-function formatDateTime(iso: string): string {
-  const d = new Date(iso);
-  return d.toLocaleString('en-IN', {
-    weekday: 'short', day: 'numeric', month: 'short',
-    hour: 'numeric', minute: '2-digit', hour12: true,
-  });
-}
 
 type SearchParams = {
   sport?: string;
@@ -203,7 +197,7 @@ function EventRow({ event: e }: { event: EventListRow }) {
               )}
             </div>
             <p className="text-xs text-gray-400 mt-1 capitalize">
-              {e.sport.replace('_', ' ')} · {formatDateTime(e.start_at)}
+              {e.sport.replace('_', ' ')} · {formatEventDateTime(e.start_at)}
             </p>
             {e.venue_name && (
               <p className="text-xs text-gray-500 mt-0.5 flex items-center gap-1">

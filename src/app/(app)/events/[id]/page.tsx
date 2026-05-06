@@ -8,6 +8,7 @@ import GuestRsvpForm from './GuestRsvpForm';
 import CostSplitSection from './CostSplitSection';
 import EventMatchesSection from './EventMatchesSection';
 import HostControls from './HostControls';
+import { formatEventDateTime } from '@/lib/formatDateTime';
 import type { SportType } from '@/types';
 
 /** Build a Google Maps "search by name" URL — works without coordinates and
@@ -19,13 +20,6 @@ function googleMapsSearchUrl(query: string): string {
 const SPORT_EMOJI: Record<string, string> = {
   cricket: '🏏', football: '⚽', badminton: '🏸', table_tennis: '🏓',
 };
-
-function formatDateTime(iso: string): string {
-  return new Date(iso).toLocaleString('en-IN', {
-    weekday: 'short', day: 'numeric', month: 'short',
-    hour: 'numeric', minute: '2-digit', hour12: true,
-  });
-}
 
 interface RsvpRow {
   id: string;
@@ -134,7 +128,7 @@ export default async function EventDetailPage({
               )}
             </div>
             <p className="text-xs text-gray-400 mt-1 capitalize flex items-center gap-1">
-              <CalendarDays size={12} /> {event.sport.replace('_', ' ')} · {formatDateTime(event.start_at)}
+              <CalendarDays size={12} /> {event.sport.replace('_', ' ')} · {formatEventDateTime(event.start_at)}
             </p>
             {event.venue_name && (
               <p className="text-xs text-gray-300 mt-1 flex items-center gap-1">
