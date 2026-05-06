@@ -19,6 +19,10 @@
 ALTER TABLE public.profiles
   ADD COLUMN IF NOT EXISTS upi_vpa text;
 
+-- Drop the constraint if a previous run added it, then re-create. Keeps
+-- the file safe to re-apply.
+ALTER TABLE public.profiles DROP CONSTRAINT IF EXISTS profiles_upi_vpa_format;
+
 -- Optional: light shape check so we don't store obvious garbage.
 -- VPAs are <handle>@<provider>; the handle is alphanumeric/dot/underscore/
 -- dash, the provider is alphanumeric. We allow a generous max length to

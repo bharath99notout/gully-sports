@@ -13,6 +13,12 @@
 DROP INDEX IF EXISTS public.event_rsvps_event_player_uk;
 DROP INDEX IF EXISTS public.event_rsvps_event_phone_uk;
 
+-- Drop the constraints first if a previous run created them (so this file
+-- is safe to re-apply). ALTER TABLE ... DROP CONSTRAINT IF EXISTS is
+-- supported in Postgres 9.5+.
+ALTER TABLE public.event_rsvps DROP CONSTRAINT IF EXISTS event_rsvps_event_player_uk;
+ALTER TABLE public.event_rsvps DROP CONSTRAINT IF EXISTS event_rsvps_event_phone_uk;
+
 ALTER TABLE public.event_rsvps
   ADD CONSTRAINT event_rsvps_event_player_uk UNIQUE (event_id, player_id);
 

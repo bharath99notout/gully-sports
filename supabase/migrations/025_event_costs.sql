@@ -70,6 +70,18 @@ ALTER TABLE public.event_costs              ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.event_cost_items         ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.event_cost_assignments   ENABLE ROW LEVEL SECURITY;
 
+-- DROP-then-CREATE for re-run safety.
+DROP POLICY IF EXISTS ec_select  ON public.event_costs;
+DROP POLICY IF EXISTS ec_insert  ON public.event_costs;
+DROP POLICY IF EXISTS ec_update  ON public.event_costs;
+DROP POLICY IF EXISTS eci_select ON public.event_cost_items;
+DROP POLICY IF EXISTS eci_insert ON public.event_cost_items;
+DROP POLICY IF EXISTS eci_delete ON public.event_cost_items;
+DROP POLICY IF EXISTS eca_select ON public.event_cost_assignments;
+DROP POLICY IF EXISTS eca_insert ON public.event_cost_assignments;
+DROP POLICY IF EXISTS eca_update ON public.event_cost_assignments;
+DROP POLICY IF EXISTS eca_delete ON public.event_cost_assignments;
+
 CREATE POLICY ec_select ON public.event_costs FOR SELECT USING (true);
 CREATE POLICY ec_insert ON public.event_costs
   FOR INSERT WITH CHECK (

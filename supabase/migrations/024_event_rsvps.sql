@@ -62,6 +62,15 @@ CREATE TABLE IF NOT EXISTS public.event_invites (
 ALTER TABLE public.event_rsvps    ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.event_invites  ENABLE ROW LEVEL SECURITY;
 
+-- DROP-then-CREATE for re-run safety.
+DROP POLICY IF EXISTS rsvp_select        ON public.event_rsvps;
+DROP POLICY IF EXISTS rsvp_insert_self   ON public.event_rsvps;
+DROP POLICY IF EXISTS rsvp_update_self   ON public.event_rsvps;
+DROP POLICY IF EXISTS rsvp_delete        ON public.event_rsvps;
+DROP POLICY IF EXISTS invite_select_host ON public.event_invites;
+DROP POLICY IF EXISTS invite_insert_host ON public.event_invites;
+DROP POLICY IF EXISTS invite_delete_host ON public.event_invites;
+
 -- RSVPs: visible to anyone (the going-list is public on the event page).
 -- Guest phone numbers are sensitive — surfaced only to the host via a
 -- separate query path on the server, never selected client-side.

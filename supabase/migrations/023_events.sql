@@ -73,6 +73,16 @@ CREATE INDEX IF NOT EXISTS event_matches_match_idx ON public.event_matches(match
 ALTER TABLE public.events        ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.event_matches ENABLE ROW LEVEL SECURITY;
 
+-- DROP-then-CREATE so the migration is safe to re-run after a partial
+-- failure (e.g. the table already exists from a previous attempt).
+DROP POLICY IF EXISTS events_select ON public.events;
+DROP POLICY IF EXISTS events_insert ON public.events;
+DROP POLICY IF EXISTS events_update ON public.events;
+DROP POLICY IF EXISTS events_delete ON public.events;
+DROP POLICY IF EXISTS em_select ON public.event_matches;
+DROP POLICY IF EXISTS em_insert ON public.event_matches;
+DROP POLICY IF EXISTS em_delete ON public.event_matches;
+
 -- Events are publicly viewable (the public-link share is the whole point).
 CREATE POLICY events_select ON public.events
   FOR SELECT USING (true);
