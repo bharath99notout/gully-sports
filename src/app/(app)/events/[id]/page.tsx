@@ -1,12 +1,13 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
-import { ArrowLeft, CalendarDays, MapPin, Users, Hourglass, X as XIcon } from 'lucide-react';
+import { ArrowLeft, CalendarDays, MapPin, Users, Hourglass, X as XIcon, Flame } from 'lucide-react';
 import { getEvent } from '@/lib/eventsServer';
 import { createClient } from '@/lib/supabase/server';
 import EventActions from './EventActions';
 import GuestRsvpForm from './GuestRsvpForm';
 import CostSplitSection from './CostSplitSection';
 import EventMatchesSection from './EventMatchesSection';
+import HostControls from './HostControls';
 import type { SportType } from '@/types';
 
 /** Build a Google Maps "search by name" URL — works without coordinates and
@@ -123,6 +124,14 @@ export default async function EventDetailPage({
             <div className="flex items-center gap-2 flex-wrap">
               <h1 className="text-xl font-bold text-white leading-tight">{event.name}</h1>
               <StatusBadge status={event.status} />
+              {event.recruiting && event.status === 'open' && (
+                <span className="inline-flex items-center gap-1 text-[10px] uppercase font-semibold tracking-wider bg-orange-950/60 text-orange-300 px-1.5 py-0.5 rounded">
+                  <Flame size={10} />
+                  {event.capacity != null
+                    ? `Needs ${Math.max(0, event.capacity - goingCount)}`
+                    : 'Looking for players'}
+                </span>
+              )}
             </div>
             <p className="text-xs text-gray-400 mt-1 capitalize flex items-center gap-1">
               <CalendarDays size={12} /> {event.sport.replace('_', ' ')} · {formatDateTime(event.start_at)}
@@ -149,6 +158,15 @@ export default async function EventDetailPage({
           </div>
         </div>
       </header>
+
+      {/* Host-only edit / cancel / delete controls */}
+      {isHost && (
+        <HostControls
+          eventId={event.id}
+          eventName={event.name}
+          status={event.status}
+        />
+      )}
 
       {/* RSVP actions: signed-in path or guest form */}
       {event.status === 'cancelled' ? (

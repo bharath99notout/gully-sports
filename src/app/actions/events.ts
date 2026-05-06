@@ -131,6 +131,43 @@ export async function cancelEvent(eventId: string, reason?: string): Promise<Act
   return { ok: true, data: undefined };
 }
 
+// ── Hard delete ─────────────────────────────────────────────────────────────
+
+/**
+ * Permanently remove the event and everything that hangs off it (RSVPs,
+ * costs, items, assignments, invites, event_matches join rows). All those
+ * tables FK to events.id with ON DELETE CASCADE, so a single delete here
+ * cleans up the lot.
+ *
+ * Important: matches that were *linked* to this event are NOT deleted —
+ * event_matches is just a join table, removing its row leaves the match
+ * untouched. That's deliberate: career stats and the match scorecard
+ * survive event deletion. Use the admin "delete match" path if you need
+ * to remove a match entirely.
+ *
+ * Hosts often want "cancel" not "delete" — cancel preserves the audit
+ * trail. Delete is for accidental creations / spam / test events.
+ */
+export async function deleteEvent(eventId: string): Promise<ActionResult> {
+  const { supabase, user, error } = await requireUser();
+  if (!user) return { ok: false, error: error ?? 'Not signed in' };
+
+  // Defence-in-depth host check; RLS rejects non-host deletes anyway.
+  const { data: event } = await supabase
+    .from('events').select('host_id').eq('id', eventId).maybeSingle();
+  if (!event) return { ok: false, error: 'Event not found' };
+  if (event.host_id !== user.id) {
+    return { ok: false, error: 'Only the host can delete this event' };
+  }
+
+  const { error: delErr } = await supabase
+    .from('events').delete().eq('id', eventId).eq('host_id', user.id);
+  if (delErr) return { ok: false, error: delErr.message };
+
+  revalidatePath('/events');
+  return { ok: true, data: undefined };
+}
+
 // (createEventFromForm removed — the New Event page now uses the typed
 // `createEvent` action directly so it can convert datetime-local→UTC on
 // the client before submit.)
