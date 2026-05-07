@@ -1,14 +1,13 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { ArrowLeft, CalendarDays, MapPin, Users, Hourglass, X as XIcon, Flame } from 'lucide-react';
-import { getEvent, getEventInvitees } from '@/lib/eventsServer';
+import { getEvent } from '@/lib/eventsServer';
 import { createClient } from '@/lib/supabase/server';
 import EventActions from './EventActions';
 import GuestRsvpForm from './GuestRsvpForm';
 import CostSplitSection from './CostSplitSection';
 import EventMatchesSection from './EventMatchesSection';
 import HostControls from './HostControls';
-import InviteesSection from './InviteesSection';
 import { formatEventDateTime } from '@/lib/formatDateTime';
 import type { SportType } from '@/types';
 
@@ -50,7 +49,6 @@ export default async function EventDetailPage({
     { data: rsvpsRaw },
     { data: costRow },
     { data: assignmentsRaw },
-    invitees,
   ] = await Promise.all([
     supabase.from('profiles').select('name, upi_vpa').eq('id', event.host_id).maybeSingle(),
     supabase
@@ -67,10 +65,6 @@ export default async function EventDetailPage({
       .from('event_cost_assignments')
       .select('id, player_id, amount_paise, paid')
       .eq('event_id', id),
-    // Invitees list — only meaningful for the host (RLS limits the read
-    // to the event's owner anyway, but skipping the call for non-hosts
-    // saves a roundtrip).
-    isHost ? getEventInvitees(id) : Promise.resolve([]),
   ]);
 
   const rsvps = (rsvpsRaw ?? []) as RsvpRow[];
@@ -165,20 +159,6 @@ export default async function EventDetailPage({
           eventId={event.id}
           eventName={event.name}
           status={event.status}
-        />
-      )}
-
-      {/* Host-only invite list — pick GullySports players, send WhatsApp
-          invite per row. Group share button on EventActions stays for
-          off-app folks. */}
-      {isHost && event.status !== 'cancelled' && (
-        <InviteesSection
-          eventId={event.id}
-          eventName={event.name}
-          sport={event.sport}
-          startAtISO={event.start_at}
-          venueName={event.venue_name}
-          invitees={invitees}
         />
       )}
 
