@@ -366,6 +366,40 @@ export async function removeEventInvite(eventId: string, phone: string): Promise
   return { ok: true, data: undefined };
 }
 
+/**
+ * Invite a GullySports player by profile_id. Looks up their phone and
+ * adds them to event_invites. The host can then tap the per-row WhatsApp
+ * button on the event page to send them the invite directly. Idempotent —
+ * adding an already-invited player is a no-op.
+ */
+export async function inviteEventPlayer(eventId: string, playerId: string): Promise<ActionResult> {
+  const { supabase, user, error } = await requireUser();
+  if (!user) return { ok: false, error: error ?? 'Not signed in' };
+
+  // Soft host check; RLS would reject for non-hosts anyway.
+  const { data: event } = await supabase
+    .from('events').select('host_id').eq('id', eventId).maybeSingle();
+  if (!event) return { ok: false, error: 'Event not found' };
+  if (event.host_id !== user.id) return { ok: false, error: 'Only the host can invite players' };
+
+  const { data: profile } = await supabase
+    .from('profiles').select('phone').eq('id', playerId).maybeSingle();
+  const phone10 = (profile?.phone ?? '').replace(/\D/g, '').slice(-10);
+  if (phone10.length !== 10) {
+    return { ok: false, error: 'That player does not have a phone number on file' };
+  }
+
+  const { error: insertErr } = await supabase
+    .from('event_invites')
+    .insert({ event_id: eventId, phone: phone10, invited_by: user.id });
+  // Duplicate-pk = already invited. Treat as success.
+  if (insertErr && !insertErr.message.toLowerCase().includes('duplicate')) {
+    return { ok: false, error: insertErr.message };
+  }
+  revalidatePath(`/events/${eventId}`);
+  return { ok: true, data: undefined };
+}
+
 // ── Attendance + cost split (host) ──────────────────────────────────────────
 
 export async function setRsvpAttended(rsvpId: string, attended: boolean): Promise<ActionResult> {
