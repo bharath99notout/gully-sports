@@ -1,13 +1,10 @@
 import Link from 'next/link';
 import { Plus, Activity } from 'lucide-react';
 import { createClient } from '@/lib/supabase/server';
-import {
-  aggregatePlayers,
-  leaderboardsFor,
-  type RawTournamentStat,
-} from '@/lib/tournament';
-import Leaderboard from '@/components/Leaderboard';
+import { buildEventLeaderboard } from '@/lib/eventLeaderboardServer';
+import EventLeaderboard from '@/components/EventLeaderboard';
 import type { SportType } from '@/types';
+import type { SportKey } from '@/lib/caliber';
 
 interface Props {
   eventId: string;
@@ -26,12 +23,16 @@ interface MatchRow {
 
 /**
  * Server-rendered. Lists matches linked to this event and renders a
- * per-event leaderboard using the same component as tournaments.
+ * per-event leaderboard using the SAME caliber + career-points layout as
+ * the global `/leaderboard` (medals, avatars, skill / points toggle). For
+ * set sports (badminton, table_tennis) it splits into Singles / Doubles
+ * tabs based on per-match team-size — same heuristic the global feed uses.
  */
 export default async function EventMatchesSection({ eventId, sport, isHost }: Props) {
   const supabase = await createClient();
 
-  // Pull match IDs linked to this event.
+  // Match list for the "Matches" sub-section (separate from the
+  // leaderboard query — the leaderboard fetches its own stats join).
   const { data: links } = await supabase
     .from('event_matches')
     .select('match_id')
@@ -39,71 +40,28 @@ export default async function EventMatchesSection({ eventId, sport, isHost }: Pr
   const matchIds = (links ?? []).map(l => l.match_id);
 
   let matches: MatchRow[] = [];
-  let aggregates: ReturnType<typeof aggregatePlayers> = [];
-  let leaderboards = leaderboardsFor([], sport);
-
   if (matchIds.length > 0) {
     const { data: matchRows } = await supabase
       .from('matches')
-      .select('id, status, team_a_name, team_b_name, winner_team_name, played_at, player_match_stats(player_id, runs_scored, wickets_taken, catches_taken, goals_scored, points_won, balls_faced, fours, sixes, balls_bowled, runs_conceded, profiles(id, name)), match_players(player_id, team_name)')
+      .select('id, status, team_a_name, team_b_name, winner_team_name, played_at')
       .in('id', matchIds)
       .order('played_at', { ascending: false });
-
     matches = ((matchRows ?? []) as unknown as MatchRow[]).map(m => ({
       id: m.id, status: m.status,
       team_a_name: m.team_a_name, team_b_name: m.team_b_name,
       winner_team_name: m.winner_team_name, played_at: m.played_at,
     }));
-
-    // Build raw stats for aggregation (mirrors the tournament page).
-    const rawStats: RawTournamentStat[] = [];
-    type StatRow = {
-      player_id: string;
-      runs_scored: number | null; wickets_taken: number | null; catches_taken: number | null;
-      goals_scored: number | null; points_won: number | null;
-      balls_faced: number | null; fours: number | null; sixes: number | null;
-      balls_bowled: number | null; runs_conceded: number | null;
-      profiles: { id: string; name: string } | { id: string; name: string }[] | null;
-    };
-    type MatchPlayerRow = { player_id: string; team_name: string };
-    type MatchWithEmbeds = MatchRow & {
-      player_match_stats: StatRow[] | null;
-      match_players: MatchPlayerRow[] | null;
-    };
-    for (const m of (matchRows ?? []) as unknown as MatchWithEmbeds[]) {
-      const playerTeam = new Map<string, string>();
-      for (const mp of (m.match_players ?? [])) playerTeamMapSet(playerTeam, mp);
-      for (const s of (m.player_match_stats ?? [])) {
-        const prof = Array.isArray(s.profiles) ? s.profiles[0] : s.profiles;
-        rawStats.push({
-          player_id: s.player_id,
-          player_name: prof?.name ?? 'Unknown',
-          match_id: m.id,
-          team_name: playerTeam.get(s.player_id) ?? '',
-          runs_scored: s.runs_scored ?? 0,
-          wickets_taken: s.wickets_taken ?? 0,
-          catches_taken: s.catches_taken ?? 0,
-          goals_scored: s.goals_scored ?? 0,
-          points_won: s.points_won ?? 0,
-          balls_faced: s.balls_faced ?? 0,
-          fours: s.fours ?? 0,
-          sixes: s.sixes ?? 0,
-          balls_bowled: s.balls_bowled ?? 0,
-          runs_conceded: s.runs_conceded ?? 0,
-          match_winner_team_name: m.winner_team_name,
-        });
-      }
-    }
-    aggregates = aggregatePlayers(rawStats, sport);
-    leaderboards = leaderboardsFor(aggregates, sport);
   }
+
+  // Per-event leaderboard — uses the same caliber + points logic as global.
+  const leaderboard = await buildEventLeaderboard(eventId, sport as SportKey);
 
   return (
     <section className="bg-gray-900 border border-gray-800 rounded-2xl p-4 flex flex-col gap-3">
       <div className="flex items-center justify-between gap-2">
         <div className="flex items-center gap-2">
           <Activity size={16} className="text-emerald-400" />
-          <h2 className="text-sm font-semibold text-white">Matches & leaderboard</h2>
+          <h2 className="text-sm font-semibold text-white">Matches &amp; leaderboard</h2>
         </div>
         {isHost && (
           <Link
@@ -145,17 +103,17 @@ export default async function EventMatchesSection({ eventId, sport, isHost }: Pr
         </ul>
       )}
 
-      {/* Per-event leaderboard — same component as tournament leaderboard */}
       {matches.length > 0 && (
         <div className="pt-3 border-t border-gray-800 flex flex-col gap-2">
           <h3 className="text-[11px] font-semibold uppercase tracking-wider text-gray-500">Leaderboard</h3>
-          <Leaderboard sport={sport} aggregates={aggregates} leaderboards={leaderboards} />
+          <EventLeaderboard
+            sport={sport as SportKey}
+            main={leaderboard.main}
+            singles={leaderboard.singles}
+            doubles={leaderboard.doubles}
+          />
         </div>
       )}
     </section>
   );
-}
-
-function playerTeamMapSet(map: Map<string, string>, mp: { player_id: string; team_name: string }) {
-  map.set(mp.player_id, mp.team_name);
 }
