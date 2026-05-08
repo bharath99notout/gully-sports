@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
+import { reloadMatchClean } from '@/lib/matchNav';
 import Button from '@/components/ui/Button';
 import { Match } from '@/types';
 
@@ -14,7 +15,9 @@ export default function MatchControls({ match }: { match: Match }) {
     setLoading(true);
     const supabase = createClient();
     await supabase.from('matches').update({ status }).eq('id', match.id);
-    router.refresh();
+    // Completed → exit ?edit=1 so the post-match summary renders.
+    if (status === 'completed') reloadMatchClean();
+    else router.refresh();
     setLoading(false);
   }
 
@@ -23,7 +26,7 @@ export default function MatchControls({ match }: { match: Match }) {
     setLoading(true);
     const supabase = createClient();
     await supabase.from('matches').update({ winner_team_id: teamId, status: 'completed' }).eq('id', match.id);
-    router.refresh();
+    reloadMatchClean();
     setLoading(false);
   }
 

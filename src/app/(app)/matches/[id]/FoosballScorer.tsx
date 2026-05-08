@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { offlineMutate } from '@/lib/offline/mutate';
+import { reloadMatchClean } from '@/lib/matchNav';
 import Card from '@/components/ui/Card';
 import { Loader2, Minus, Plus, Trophy, RotateCcw, Flag } from 'lucide-react';
 import type { Match, MatchScore, MatchPlayer } from '@/types';
@@ -140,7 +141,7 @@ export default function FoosballScorer({
     }
 
     setBusy(null);
-    window.location.reload();
+    reloadMatchClean();
   }
 
   async function reopen() {
@@ -155,7 +156,7 @@ export default function FoosballScorer({
       where: { id: match.id },
     }, match.id);
     setBusy(null);
-    window.location.reload();
+    reloadMatchClean();
   }
 
   return (

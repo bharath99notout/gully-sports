@@ -24,7 +24,7 @@ export default async function NotificationsPage() {
             Notifications
           </h1>
           <p className="text-sm text-gray-500 mt-1">
-            Alerts when a match you played in is recorded and needs confirmation (6h auto-confirm).
+            Alerts when a match you played in is recorded and needs confirmation (1h auto-confirm).
           </p>
         </div>
         {unread.length > 0 && (

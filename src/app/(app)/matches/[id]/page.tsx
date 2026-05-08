@@ -36,7 +36,7 @@ export default async function MatchDetailPage({ params, searchParams }: Props) {
   const inEditMode = editFlag === '1';
   const supabase = await createClient();
 
-  // Promote any matches whose 6h auto-confirm window expired. Cheap (rate-
+  // Promote any matches whose 1h auto-confirm window expired. Cheap (rate-
   // limited + partial index) and runs naturally as users browse.
   await maybeSweepAutoConfirms();
 

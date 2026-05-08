@@ -40,7 +40,7 @@ export default async function LeaderboardPage() {
     `)
     .returns<RawStat[]>();
 
-  // Phase 1: leaderboard only counts fully confirmed matches (6h auto-confirm OK).
+  // Phase 1: leaderboard only counts fully confirmed matches (1h auto-confirm OK).
   const raw = (data ?? []).filter(r => r.matches?.confirmation_state === 'confirmed');
   const matchIds = Array.from(new Set(raw.map(r => r.match_id)));
 

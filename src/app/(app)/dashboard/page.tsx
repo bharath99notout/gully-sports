@@ -25,7 +25,7 @@ export default async function DashboardPage() {
   const { data: { user } } = await supabase.auth.getUser();
 
   // Run the auto-confirm sweep on every dashboard load (rate-limited to 1/min)
-  // so the 6h auto-confirm window doesn't depend on people viewing match
+  // so the 1h auto-confirm window doesn't depend on people viewing match
   // pages. The dashboard is the most-hit page, so it's the right place.
   await maybeSweepAutoConfirms();
 

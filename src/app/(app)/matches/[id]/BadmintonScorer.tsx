@@ -3,6 +3,7 @@
 import { useRef, useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { offlineMutate } from '@/lib/offline/mutate';
+import { reloadMatchClean } from '@/lib/matchNav';
 import { Match, MatchScore, MatchPlayer } from '@/types';
 import { Minus, Plus, X, UserPlus } from 'lucide-react';
 
@@ -225,7 +226,7 @@ export default function BadmintonScorer({
       },
       where: { id: match.id },
     }, match.id);
-    window.location.reload();
+    reloadMatchClean();
   }
 
   // ── Render ─────────────────────────────────────────────────────────────────

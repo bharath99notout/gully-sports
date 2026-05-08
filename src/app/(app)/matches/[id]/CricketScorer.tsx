@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { offlineMutate } from '@/lib/offline/mutate';
+import { reloadMatchClean } from '@/lib/matchNav';
 import Card from '@/components/ui/Card';
 import { Plus, X, ChevronDown, Trophy, Target } from 'lucide-react';
 import { Match, MatchScore, MatchPlayer, CricketPlayerStat } from '@/types';
@@ -42,6 +43,23 @@ function impactScore(s: CricketPlayerStat): number {
 // Display helper: prefix numeric-only team names so they don't look like scores
 function teamLabel(name: string): string {
   return /^\d+$/.test(name.trim()) ? `Team ${name.trim()}` : name;
+}
+
+// Cricket display formatters
+function crr(runs: number, oversFaced: number): string {
+  const balls = oversTooBalls(oversFaced);
+  if (balls === 0) return '0.00';
+  return ((runs / balls) * 6).toFixed(2);
+}
+
+function strikeRate(runs: number, balls: number): string {
+  if (balls === 0) return '0.0';
+  return ((runs / balls) * 100).toFixed(1);
+}
+
+function economy(runsConceded: number, ballsBowled: number): string {
+  if (ballsBowled === 0) return '0.00';
+  return ((runsConceded / ballsBowled) * 6).toFixed(2);
 }
 
 export default function CricketScorer({
@@ -144,19 +162,23 @@ export default function CricketScorer({
     }, match.id);
   }
 
-  async function incrementBall() {
-    if (!battingScore || !battingTeam) return;
+  /**
+   * Bumps the legal-ball counter and overs.
+   * Returns true if this ball completed an over — caller is responsible for
+   * (a) end-of-over striker swap and (b) clearing the bowler. Keeping the
+   * over-end side-effects at call sites lets handleRuns/confirmWicket
+   * compose them with the odd-run swap and wicket-dismissal logic in one
+   * deterministic sequence.
+   */
+  async function incrementBall(): Promise<boolean> {
+    if (!battingScore || !battingTeam) return false;
     const totalBalls = oversTooBalls(battingScore.overs_faced ?? 0) + 1;
     const newOvers = ballsToOvers(totalBalls);
     await offlineMutate(supabase, {
       kind: 'update', table: 'match_scores', values: { overs_faced: newOvers }, where: { id: battingScore.id },
     }, match.id);
     patchScore(battingTeam, { overs_faced: newOvers });
-    // End of over: reset bowler (new bowler required for next over)
-    if (totalBalls % 6 === 0) {
-      setBowlerId(null);
-      await saveMatchState({ bowler_id: null });
-    }
+    return totalBalls % 6 === 0;
   }
 
   // Auto-detect game end: chase complete OR all-out
@@ -225,13 +247,35 @@ export default function CricketScorer({
       balls_bowled: 1,
       runs_conceded: runs,
     });
-    if (!isExtra) await incrementBall();
 
-    // Swap on odd runs (within over)
-    if (!isExtra && runs % 2 === 1 && strikerId && nonStrikerId) {
-      const [ns, s] = [strikerId, nonStrikerId];
-      setStrikerId(ns); setNonStrikerId(s);
-      await saveMatchState({ striker_id: ns, non_striker_id: s });
+    // Cricket striker rotation:
+    //   - Odd runs (1, 3, 5): batsmen physically cross while running, so
+    //     positions swap.
+    //   - End of over: the bowler bowls from the opposite end, so the
+    //     striker's-end and non-striker's-end labels swap.
+    //   - Both happening at once (e.g. 1 run on ball 6) cancel out — net
+    //     no change. We just compose them in sequence.
+    // Wides + no-balls (isExtra) don't count as legal balls and don't
+    // increment the over, so neither rule applies.
+    let newStriker = strikerId;
+    let newNonStriker = nonStrikerId;
+    let isEndOfOver = false;
+
+    if (!isExtra) {
+      isEndOfOver = await incrementBall();
+      if (runs % 2 === 1) [newStriker, newNonStriker] = [newNonStriker, newStriker];
+      if (isEndOfOver) [newStriker, newNonStriker] = [newNonStriker, newStriker];
+    }
+
+    if (newStriker !== strikerId || newNonStriker !== nonStrikerId || isEndOfOver) {
+      setStrikerId(newStriker);
+      setNonStrikerId(newNonStriker);
+      if (isEndOfOver) setBowlerId(null);
+      await saveMatchState({
+        striker_id: newStriker,
+        non_striker_id: newNonStriker,
+        ...(isEndOfOver ? { bowler_id: null } : {}),
+      });
     }
 
     // Check if chase is complete (applies to extras too — e.g. winning wide)
@@ -271,12 +315,24 @@ export default function CricketScorer({
       await upsertStat(dismissedId, { is_out: true, dismissal });
     }
 
-    const newStriker = dismissedId === strikerId ? null : strikerId;
-    const newNonStriker = dismissedId === nonStrikerId ? null : nonStrikerId;
-    setStrikerId(newStriker); setNonStrikerId(newNonStriker);
-    await saveMatchState({ striker_id: newStriker, non_striker_id: newNonStriker });
+    // Whoever's out gets nulled; the surviving batsman keeps their end.
+    let newStriker = dismissedId === strikerId ? null : strikerId;
+    let newNonStriker = dismissedId === nonStrikerId ? null : nonStrikerId;
 
-    await incrementBall();
+    // The wicket itself counts as a legal ball — increment first, then
+    // apply end-of-over swap (so an over ending with a wicket leaves the
+    // surviving batsman at the correct end for the new bowler's first ball).
+    const isEndOfOver = await incrementBall();
+    if (isEndOfOver) [newStriker, newNonStriker] = [newNonStriker, newStriker];
+
+    setStrikerId(newStriker);
+    setNonStrikerId(newNonStriker);
+    if (isEndOfOver) setBowlerId(null);
+    await saveMatchState({
+      striker_id: newStriker,
+      non_striker_id: newNonStriker,
+      ...(isEndOfOver ? { bowler_id: null } : {}),
+    });
 
     setWicketOpen(false); setCatcherId(null);
     setBusy(false);
@@ -318,7 +374,7 @@ export default function CricketScorer({
       },
       where: { id: match.id },
     }, match.id);
-    window.location.reload();
+    reloadMatchClean();
   }
 
   async function handleSearch(q: string) {
@@ -399,25 +455,57 @@ export default function CricketScorer({
         </div>
       )}
 
-      {/* ── Score cards ── */}
+      {/* ── Score cards (IPL-style: BATTING / YET TO BAT / INNINGS 1) ── */}
       <div className="grid grid-cols-2 gap-3">
         {([
           { score: scoreA, team: match.team_a_name },
           { score: scoreB, team: match.team_b_name },
-        ] as { score: MatchScore | null; team: string }[]).map(({ score, team }) => (
-          <Card key={team} padding="md" className={battingTeam === team ? 'border-emerald-700' : ''}>
-            <div className="flex items-center justify-between mb-1">
-              <p className="text-xs text-gray-400 truncate">{teamLabel(team)}</p>
-              {battingTeam === team
-                ? <span className="text-xs text-emerald-400 font-semibold">{innings === 1 ? '1st INN' : '2nd INN'}</span>
-                : battingTeam && <span className="text-xs text-blue-400">BOWLING</span>}
-            </div>
-            <div className="text-3xl font-bold text-white">
-              {score?.runs ?? 0}/{score?.wickets ?? 0}
-            </div>
-            <div className="text-xs text-gray-500 mt-0.5">{score?.overs_faced ?? 0} ov</div>
-          </Card>
-        ))}
+        ] as { score: MatchScore | null; team: string }[]).map(({ score, team }) => {
+          const isBatting = battingTeam === team;
+          // True if this team has actually batted at any point (1st innings team
+          // post-switch). When `battingTeam` is set and this isn't it, it's
+          // either bowling now (1st innings) or already finished (2nd innings).
+          const hasBatted = (score?.runs ?? 0) > 0 || (score?.overs_faced ?? 0) > 0;
+          // In 2nd innings, the OTHER team has already batted.
+          const finishedBatting = !isBatting && innings === 2 && hasBatted;
+          // 1st innings, not currently batting → "yet to bat".
+          const yetToBat = !isBatting && !finishedBatting && !hasBatted;
+
+          return (
+            <Card key={team} padding="md"
+              className={isBatting ? 'border-emerald-700 bg-emerald-950/15' : ''}>
+              <div className="flex items-center justify-between gap-2 mb-1">
+                <p className="text-xs text-gray-400 truncate">{teamLabel(team)}</p>
+                {isBatting && (
+                  <span className="flex items-center gap-1 text-[10px] text-emerald-400 font-bold uppercase tracking-wider shrink-0">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                    Batting
+                  </span>
+                )}
+                {finishedBatting && (
+                  <span className="text-[10px] text-gray-500 font-semibold uppercase tracking-wider shrink-0">
+                    Innings 1
+                  </span>
+                )}
+                {yetToBat && (
+                  <span className="text-[10px] text-gray-500 font-semibold uppercase tracking-wider shrink-0">
+                    Yet to bat
+                  </span>
+                )}
+              </div>
+              <div className={`text-3xl font-bold ${yetToBat ? 'text-gray-700' : 'text-white'}`}>
+                {yetToBat ? '—/—' : `${score?.runs ?? 0}/${score?.wickets ?? 0}`}
+              </div>
+              <div className="text-xs text-gray-500 mt-0.5">
+                {yetToBat
+                  ? 'Innings 2'
+                  : isBatting
+                    ? `${score?.overs_faced ?? 0} ov · CRR ${crr(score?.runs ?? 0, score?.overs_faced ?? 0)}`
+                    : `${score?.overs_faced ?? 0} ov`}
+              </div>
+            </Card>
+          );
+        })}
       </div>
 
       {/* ── Chase target banner (2nd innings) ── */}
@@ -451,13 +539,15 @@ export default function CricketScorer({
         </div>
       )}
 
-      {/* ── Post-match MVP Leaderboard ── */}
-      {match.status === 'completed' && allPlayers.length > 0 && !allowDisputeRecheck && !adminOverrideCompleted && (
+      {/* ── Post-match MVP Leaderboard + summary ──
+          Shown for any completed match — including admin edit / dispute
+          recheck mode, so the scorer can cross-check the canonical match
+          state against their edits. */}
+      {match.status === 'completed' && allPlayers.length > 0 && (
         <MVPLeaderboard players={allPlayers} stats={stats} getStats={getStats} />
       )}
 
-      {/* ── Post-match summary (replaces bare scorecard when completed) ── */}
-      {match.status === 'completed' && players.length > 0 && !allowDisputeRecheck && !adminOverrideCompleted && (
+      {match.status === 'completed' && players.length > 0 && (
         <PostMatchSummary
           players={players} stats={stats}
           match={match} scoreA={scoreA} scoreB={scoreB}
@@ -488,35 +578,48 @@ export default function CricketScorer({
 
           {battingTeam && (
             <>
-              {/* ── Player setup ── */}
+              {/* ── Now Batting (IPL-style striker emphasis) ── */}
               <Card padding="md">
-                <h3 className="text-sm font-semibold text-white mb-3">Current Players</h3>
-                <div className="flex flex-col gap-2.5">
-                  <PlayerSelect
-                    label="🏏 Striker"
+                <div className="flex items-center justify-between mb-3">
+                  <h3 className="text-sm font-semibold text-white">Now Batting</h3>
+                  {strikerId && (
+                    <span className="flex items-center gap-1 text-[10px] text-emerald-400 font-bold uppercase tracking-wider">
+                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                      On strike
+                    </span>
+                  )}
+                </div>
+
+                {/* Two-column batsman grid: striker (emerald) + non-striker (muted).
+                    excludeId on each side hides the other batsman from that
+                    slot's dropdown — same player can't be on both sides. */}
+                <div className="grid grid-cols-2 gap-2 mb-2.5">
+                  <BatsmanSlot
+                    role="striker"
                     options={battingPlayers}
                     value={strikerId}
-                    stat={strikerId ? `${getStats(strikerId).runs_scored}*` : ''}
-                    statColor="text-emerald-400"
+                    excludeId={nonStrikerId}
+                    stats={strikerId ? getStats(strikerId) : null}
                     onChange={v => changeSelect(setStrikerId, 'striker_id', v)}
                   />
-                  <PlayerSelect
-                    label="🏃 Non-striker"
+                  <BatsmanSlot
+                    role="non-striker"
                     options={battingPlayers}
                     value={nonStrikerId}
-                    stat={nonStrikerId ? `${getStats(nonStrikerId).runs_scored}` : ''}
-                    statColor="text-gray-400"
+                    excludeId={strikerId}
+                    stats={nonStrikerId ? getStats(nonStrikerId) : null}
                     onChange={v => changeSelect(setNonStrikerId, 'non_striker_id', v)}
                   />
-                  <PlayerSelect
-                    label="🎳 Bowler"
-                    options={bowlingPlayers}
-                    value={bowlerId}
-                    stat={bowlerId ? `${getStats(bowlerId).wickets_taken}W` : ''}
-                    statColor="text-red-400"
-                    onChange={v => changeSelect(setBowlerId, 'bowler_id', v)}
-                  />
                 </div>
+
+                {/* Bowler row (full width) */}
+                <BowlerSlot
+                  options={bowlingPlayers}
+                  value={bowlerId}
+                  stats={bowlerId ? getStats(bowlerId) : null}
+                  onChange={v => changeSelect(setBowlerId, 'bowler_id', v)}
+                />
+
                 {battingPlayers.length === 0 && (
                   <p className="text-xs text-amber-600 mt-2.5">↓ Add players to {battingTeam} in Match Players below</p>
                 )}
@@ -1179,47 +1282,170 @@ function PlayerDropdown({ options, value, placeholder, onChange }: {
   );
 }
 
-// ── Reusable player select row (custom dropdown) ──────────────────────────────
+// ── Batsman slot (IPL-style card with striker emphasis) ──────────────────────
 
-function PlayerSelect({ label, options, value, stat, statColor, onChange }: {
-  label: string;
+function BatsmanSlot({ role, options, value, excludeId, stats, onChange }: {
+  role: 'striker' | 'non-striker';
   options: MatchPlayer[];
   value: string | null;
-  stat: string;
-  statColor: string;
+  /** Hide this player from the dropdown — they're already in the other slot. */
+  excludeId?: string | null;
+  stats: CricketPlayerStat | null;
+  onChange: (v: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const selected = options.find(p => p.player_id === value);
+  const dropdownOptions = excludeId
+    ? options.filter(p => p.player_id !== excludeId)
+    : options;
+  const isStriker = role === 'striker';
+  const runs  = stats?.runs_scored ?? 0;
+  const balls = stats?.balls_faced ?? 0;
+
+  const wrapperCls = isStriker
+    ? 'border-emerald-700 bg-emerald-950/25'
+    : 'border-gray-700 bg-gray-800/40';
+  const nameCls = selected
+    ? (isStriker ? 'text-white font-bold' : 'text-gray-300')
+    : 'text-gray-500';
+
+  return (
+    <div className="relative">
+      <button
+        type="button"
+        onClick={() => setOpen(o => !o)}
+        className={`w-full text-left rounded-xl border ${wrapperCls} px-3 py-2.5 transition-colors`}
+      >
+        <div className="flex items-center justify-between gap-1 mb-1">
+          <span className={`text-[10px] font-semibold uppercase tracking-wider ${
+            isStriker ? 'text-emerald-400' : 'text-gray-500'
+          }`}>
+            {isStriker ? '🏏 Striker' : 'Non-striker'}
+          </span>
+          <ChevronDown size={11} className="text-gray-500 shrink-0" />
+        </div>
+        <p className={`text-sm truncate ${nameCls}`}>
+          {selected?.name ?? '— select —'}
+          {isStriker && selected && <span className="text-emerald-400">*</span>}
+        </p>
+        {selected && (
+          <div className="mt-1 flex items-baseline gap-1.5">
+            <span className={`text-lg font-bold tabular-nums ${
+              isStriker ? 'text-white' : 'text-gray-400'
+            }`}>
+              {runs}
+            </span>
+            <span className="text-xs text-gray-500 tabular-nums">({balls})</span>
+            {balls > 0 && (
+              <span className="text-[10px] text-gray-600 ml-auto tabular-nums">
+                SR {strikeRate(runs, balls)}
+              </span>
+            )}
+          </div>
+        )}
+      </button>
+
+      {open && (
+        <div className="absolute z-20 mt-1 w-full bg-gray-800 border border-gray-700 rounded-lg overflow-hidden shadow-xl">
+          <button
+            type="button"
+            onClick={() => { onChange(''); setOpen(false); }}
+            className="w-full text-left px-3 py-2 text-sm text-gray-500 hover:bg-gray-700"
+          >
+            — select —
+          </button>
+          {dropdownOptions.map(p => (
+            <button
+              key={p.player_id}
+              type="button"
+              onClick={() => { onChange(p.player_id); setOpen(false); }}
+              className={`w-full text-left px-3 py-2 text-sm hover:bg-gray-700 ${
+                value === p.player_id ? 'text-emerald-400' : 'text-white'
+              }`}
+            >
+              {p.name}
+            </button>
+          ))}
+          {dropdownOptions.length === 0 && (
+            <p className="px-3 py-2 text-xs text-gray-600 italic">No players — add below</p>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Bowler slot (full-width row with red accent) ─────────────────────────────
+
+function BowlerSlot({ options, value, stats, onChange }: {
+  options: MatchPlayer[];
+  value: string | null;
+  stats: CricketPlayerStat | null;
   onChange: (v: string) => void;
 }) {
   const [open, setOpen] = useState(false);
   const selected = options.find(p => p.player_id === value);
 
+  const wkts = stats?.wickets_taken ?? 0;
+  const conceded = stats?.runs_conceded ?? 0;
+  const ballsBowled = stats?.balls_bowled ?? 0;
+  const oversBowled = ballsToOvers(ballsBowled);
+
   return (
-    <div className="flex items-center gap-2">
-      <span className="text-xs text-gray-500 w-24 shrink-0">{label}</span>
-      <div className="relative flex-1 min-w-0">
-        <button type="button" onClick={() => setOpen(o => !o)}
-          className="w-full bg-gray-800 border border-gray-700 text-sm rounded-lg px-2 py-1.5 text-left flex items-center justify-between">
-          <span className={`truncate ${selected ? 'text-white' : 'text-gray-500'}`}>
-            {selected?.name ?? '— select —'}
+    <div className="relative">
+      <button
+        type="button"
+        onClick={() => setOpen(o => !o)}
+        className="w-full text-left rounded-xl border border-red-900/40 bg-red-950/15 px-3 py-2 flex items-center gap-3"
+      >
+        <div className="flex flex-col min-w-0 flex-1">
+          <span className="text-[10px] font-semibold uppercase tracking-wider text-red-400">
+            🎳 Bowler
           </span>
-          <ChevronDown size={12} className="text-gray-400 shrink-0 ml-1" />
-        </button>
-        {open && (
-          <div className="absolute z-10 mt-1 w-full bg-gray-800 border border-gray-700 rounded-lg overflow-hidden shadow-xl">
-            <button type="button" onClick={() => { onChange(''); setOpen(false); }}
-              className="w-full text-left px-3 py-2 text-sm text-gray-500 hover:bg-gray-700">— select —</button>
-            {options.map(p => (
-              <button key={p.player_id} type="button" onClick={() => { onChange(p.player_id); setOpen(false); }}
-                className={`w-full text-left px-3 py-2 text-sm hover:bg-gray-700 ${value === p.player_id ? 'text-emerald-400' : 'text-white'}`}>
-                {p.name}
-              </button>
-            ))}
-            {options.length === 0 && (
-              <p className="px-3 py-2 text-xs text-gray-600 italic">No players — add below</p>
-            )}
+          <p className={`text-sm truncate ${selected ? 'text-white' : 'text-gray-500'}`}>
+            {selected?.name ?? '— select —'}
+          </p>
+        </div>
+        {selected && (
+          <div className="text-right shrink-0">
+            <div className="text-sm font-bold text-white tabular-nums">
+              {wkts}/{conceded}
+            </div>
+            <div className="text-[10px] text-gray-500 tabular-nums">
+              {oversBowled} ov
+              {ballsBowled > 0 && <> · ER {economy(conceded, ballsBowled)}</>}
+            </div>
           </div>
         )}
-      </div>
-      {stat && <span className={`text-xs font-medium shrink-0 ${statColor}`}>{stat}</span>}
+        <ChevronDown size={12} className="text-gray-500 shrink-0" />
+      </button>
+
+      {open && (
+        <div className="absolute z-20 mt-1 w-full bg-gray-800 border border-gray-700 rounded-lg overflow-hidden shadow-xl">
+          <button
+            type="button"
+            onClick={() => { onChange(''); setOpen(false); }}
+            className="w-full text-left px-3 py-2 text-sm text-gray-500 hover:bg-gray-700"
+          >
+            — select —
+          </button>
+          {options.map(p => (
+            <button
+              key={p.player_id}
+              type="button"
+              onClick={() => { onChange(p.player_id); setOpen(false); }}
+              className={`w-full text-left px-3 py-2 text-sm hover:bg-gray-700 ${
+                value === p.player_id ? 'text-emerald-400' : 'text-white'
+              }`}
+            >
+              {p.name}
+            </button>
+          ))}
+          {options.length === 0 && (
+            <p className="px-3 py-2 text-xs text-gray-600 italic">No players — add below</p>
+          )}
+        </div>
+      )}
     </div>
   );
 }

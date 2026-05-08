@@ -21,7 +21,7 @@ export interface MatchConfirmation {
 
 /**
  * Phase 1 integrity: only matches every side has accepted (or auto-confirmed
- * after 6h) count toward caliber, leaderboard, and detailed stat tiles.
+ * after 1h) count toward caliber, leaderboard, and detailed stat tiles.
  * Pending, disputed, force_pushed, and rejected are all excluded.
  */
 export function isMatchExcludedFromStats(state: ConfirmationState | null | undefined): boolean {
@@ -36,7 +36,7 @@ export function describeConfirmationState(state: ConfirmationState): {
 } {
   switch (state) {
     case 'pending':
-      return { label: 'Pending confirmation', tone: 'warning', hint: 'Auto-confirms in 6h' };
+      return { label: 'Pending confirmation', tone: 'warning', hint: 'Auto-confirms in 1h' };
     case 'confirmed':
       return { label: 'Confirmed', tone: 'success' };
     case 'disputed':
