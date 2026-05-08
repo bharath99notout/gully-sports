@@ -23,6 +23,7 @@ const CricketScorer      = dynamic(() => import('./CricketScorer'),      { loadi
 const FootballScorer     = dynamic(() => import('./FootballScorer'),     { loading: ScorerSkeleton });
 const BadmintonScorer    = dynamic(() => import('./BadmintonScorer'),    { loading: ScorerSkeleton });
 const TableTennisScorer  = dynamic(() => import('./TableTennisScorer'),  { loading: ScorerSkeleton });
+const FoosballScorer     = dynamic(() => import('./FoosballScorer'),     { loading: ScorerSkeleton });
 
 interface Props {
   params: Promise<{ id: string }>;
@@ -329,6 +330,17 @@ export default async function MatchDetailPage({ params, searchParams }: Props) {
             matchPlayers={matchPlayers}
           />
         )}
+        {match.sport === 'foosball' && (
+          <FoosballScorer
+            match={match as Match}
+            scoreA={scoreA}
+            scoreB={scoreB}
+            canEdit={canEditScoresForUi}
+            allowDisputeRecheck={allowDisputeRecheck}
+            adminOverrideCompleted={adminOverrideCompleted}
+            matchPlayers={matchPlayers}
+          />
+        )}
       </div>
 
       {/* Winner — use winner_team_name (works for ad-hoc matches too) */}
@@ -364,13 +376,26 @@ async function MatchShareTrigger({ match, scoreA, scoreB }: {
 
   const teamA = /^\d+$/.test(match.team_a_name.trim()) ? `Team ${match.team_a_name}` : match.team_a_name;
   const teamB = /^\d+$/.test(match.team_b_name.trim()) ? `Team ${match.team_b_name}` : match.team_b_name;
-  const sportEmoji = match.sport === 'cricket' ? '🏏' : match.sport === 'football' ? '⚽' : '🏸';
+  // Plain-text emoji for shareable strings (WhatsApp, etc.) — we can't
+  // inline the foosball SVG into a text payload, so 🥅 is the closest
+  // single-character stand-in.
+  const sportEmoji =
+      match.sport === 'cricket'      ? '🏏'
+    : match.sport === 'football'     ? '⚽'
+    : match.sport === 'badminton'    ? '🏸'
+    : match.sport === 'table_tennis' ? '🏓'
+    : match.sport === 'foosball'     ? '🥅'
+    :                                  '🎯';
 
   let scoreLine = '';
   if (match.sport === 'cricket') {
     scoreLine = `${teamA} ${scoreA?.runs ?? 0}/${scoreA?.wickets ?? 0} · ${teamB} ${scoreB?.runs ?? 0}/${scoreB?.wickets ?? 0}`;
   } else if (match.sport === 'football') {
     scoreLine = `${teamA} ${scoreA?.goals ?? 0} - ${scoreB?.goals ?? 0} ${teamB}`;
+  } else if (match.sport === 'foosball') {
+    // Foosball stores per-side games-won in match_scores.goals — same
+    // column football uses for actual goals, just semantically "score".
+    scoreLine = `${teamA} ${scoreA?.goals ?? 0} - ${scoreB?.goals ?? 0} ${teamB} (games)`;
   } else {
     const a = (scoreA?.sets ?? []).join('·') || '–';
     const b = (scoreB?.sets ?? []).join('·') || '–';

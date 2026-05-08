@@ -6,13 +6,15 @@ import Link from 'next/link';
 import { Trophy } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 import Button from '@/components/ui/Button';
+import SportIcon from '@/components/SportIcon';
 import type { SportType } from '@/types';
 
-const SPORTS: { value: SportType; label: string; emoji: string }[] = [
-  { value: 'cricket',      label: 'Cricket',      emoji: '🏏' },
-  { value: 'football',     label: 'Football',     emoji: '⚽' },
-  { value: 'badminton',    label: 'Badminton',    emoji: '🏸' },
-  { value: 'table_tennis', label: 'Table Tennis', emoji: '🏓' },
+const SPORTS: { value: SportType; label: string }[] = [
+  { value: 'cricket',      label: 'Cricket' },
+  { value: 'football',     label: 'Football' },
+  { value: 'badminton',    label: 'Badminton' },
+  { value: 'table_tennis', label: 'Table Tennis' },
+  { value: 'foosball',     label: 'Foosball' },
 ];
 
 export default function NewTournamentPage() {
@@ -98,7 +100,7 @@ export default function NewTournamentPage() {
                     : 'border-gray-700 bg-gray-800 text-gray-300 hover:border-gray-600'
                 }`}
               >
-                <span className="text-lg">{s.emoji}</span> {s.label}
+                <SportIcon sport={s.value} className="text-lg" /> {s.label}
               </button>
             ))}
           </div>

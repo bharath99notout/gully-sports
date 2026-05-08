@@ -196,6 +196,19 @@ export function buildMatchPlayerImpactRows(
         sets_won,
         clean_sweeps,
       };
+    } else if (sport === 'foosball') {
+      // Foosball doesn't track per-game scoring — host just declares the
+      // winner. Show only the result line; career points come from
+      // played + won, no sets/sweep bonuses.
+      stat_lines = [winner ? (won ? 'Match win' : 'Match loss') : 'Result pending'];
+      pm = {
+        runs_scored: 0,
+        wickets_taken: 0,
+        catches_taken: 0,
+        goals_scored: 0,
+        won,
+        was_mvp: false,
+      };
     } else if (!r) {
       stat_lines = ['No stat row yet'];
     }

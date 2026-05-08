@@ -13,6 +13,9 @@ import PendingMatchesSection from '@/components/PendingMatchesSection';
 import CricketStatsSection from '@/components/CricketStatsSection';
 import FootballStatsPanel from '@/components/FootballStatsPanel';
 import RacquetStatsPanel from '@/components/RacquetStatsPanel';
+import FoosballStatsPanel from '@/components/FoosballStatsPanel';
+import SportIcon from '@/components/SportIcon';
+import type { SportType } from '@/types';
 import { calcCaliber, getCaliberLabel, SportKey } from '@/lib/caliber';
 import TrophyBanner, { Achievement } from '@/components/TrophyBanner';
 import { isMatchExcludedFromStats, type ConfirmationState } from '@/lib/matchConfirmation';
@@ -92,6 +95,9 @@ export default async function DashboardPage() {
   }
   if (detailedStats.tableTennis.matches > 0) {
     expandableDetails.table_tennis = <RacquetStatsPanel detail={detailedStats.tableTennis} />;
+  }
+  if (detailedStats.foosball.matches > 0) {
+    expandableDetails.foosball = <FoosballStatsPanel detail={detailedStats.foosball} />;
   }
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -186,7 +192,13 @@ export default async function DashboardPage() {
     .map(s => {
       const score = calcCaliber(s, athleteData.sportStats[s]);
       const label = getCaliberLabel(score);
-      const emoji = s === 'cricket' ? '🏏' : s === 'football' ? '⚽' : s === 'badminton' ? '🏸' : '🏓';
+      const emoji =
+          s === 'cricket'      ? '🏏'
+        : s === 'football'     ? '⚽'
+        : s === 'badminton'    ? '🏸'
+        : s === 'table_tennis' ? '🏓'
+        : s === 'foosball'     ? '🥅'
+        :                        '🎯';
       return `${emoji} ${label} (${score})`;
     });
   const myShareText = [`🏆 ${athleteData.name || 'My'} profile on GullySports`, ...mySportLines].join('\n');
@@ -236,17 +248,23 @@ export default async function DashboardPage() {
         <PendingMatchesSection matches={pendingForMe} />
       )}
 
-      {/* New match CTA */}
-      <div className="grid grid-cols-2 gap-2">
-        {[
-          { href: '/matches/new?sport=cricket',      emoji: '🏏', label: 'Cricket' },
-          { href: '/matches/new?sport=football',     emoji: '⚽', label: 'Football' },
-          { href: '/matches/new?sport=badminton',    emoji: '🏸', label: 'Badminton' },
-          { href: '/matches/new?sport=table_tennis', emoji: '🏓', label: 'T. Tennis' },
-        ].map(({ href, emoji, label }) => (
-          <Link key={label} href={href}
-            className="flex items-center justify-center gap-1.5 bg-gray-900 border border-gray-800 hover:border-emerald-700 hover:bg-emerald-950/20 rounded-xl py-2.5 text-sm text-gray-400 hover:text-emerald-400 font-medium transition-all">
-            <span>{emoji}</span> + {label}
+      {/* New match CTA — one tile per sport. Grid wraps to a second row
+          on mobile (3 cols) so all five sports stay visible without
+          horizontal scroll, and shows three across on small screens. */}
+      <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+        {([
+          { sport: 'cricket' as SportType,      label: 'Cricket' },
+          { sport: 'football' as SportType,     label: 'Football' },
+          { sport: 'badminton' as SportType,    label: 'Badminton' },
+          { sport: 'table_tennis' as SportType, label: 'T. Tennis' },
+          { sport: 'foosball' as SportType,     label: 'Foosball' },
+        ]).map(({ sport, label }) => (
+          <Link
+            key={sport}
+            href={`/matches/new?sport=${sport}`}
+            className="flex items-center justify-center gap-1.5 bg-gray-900 border border-gray-800 hover:border-emerald-700 hover:bg-emerald-950/20 rounded-xl py-2.5 text-sm text-gray-400 hover:text-emerald-400 font-medium transition-all"
+          >
+            <SportIcon sport={sport} /> + {label}
           </Link>
         ))}
       </div>
@@ -263,7 +281,13 @@ export default async function DashboardPage() {
             {(liveMatches as any[]).map(m => {
               const sA = m.match_scores?.find((s: { team_name: string }) => s.team_name === m.team_a_name);
               const sB = m.match_scores?.find((s: { team_name: string }) => s.team_name === m.team_b_name);
-              const emoji = m.sport === 'cricket' ? '🏏' : m.sport === 'football' ? '⚽' : '🏸';
+              const emoji =
+                  m.sport === 'cricket'      ? '🏏'
+                : m.sport === 'football'     ? '⚽'
+                : m.sport === 'badminton'    ? '🏸'
+                : m.sport === 'table_tennis' ? '🏓'
+                : m.sport === 'foosball'     ? '🥅'
+                :                              '🎯';
               return (
                 <Link key={m.id} href={`/matches/${m.id}`}
                   className="flex-shrink-0 bg-red-950/30 border border-red-900/50 rounded-2xl p-3 w-44 hover:border-red-700 transition-colors">

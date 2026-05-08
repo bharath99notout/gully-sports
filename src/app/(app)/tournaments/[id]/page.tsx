@@ -13,11 +13,8 @@ import {
   type RawMatchForStandings,
 } from '@/lib/tournament';
 import type { SportType } from '@/types';
+import SportIcon from '@/components/SportIcon';
 import TournamentTabsClient from './TournamentTabsClient';
-
-const SPORT_EMOJI: Record<string, string> = {
-  cricket: '🏏', football: '⚽', badminton: '🏸', table_tennis: '🏓',
-};
 
 export default async function TournamentDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -202,7 +199,7 @@ export default async function TournamentDetailPage({ params }: { params: Promise
 
       <header className="bg-gradient-to-br from-emerald-900/30 to-gray-900 border border-emerald-900/40 rounded-2xl p-5">
         <div className="flex items-start gap-3">
-          <span className="text-3xl">{SPORT_EMOJI[tournament.sport]}</span>
+          <SportIcon sport={tournament.sport} className="text-3xl" />
           <div className="flex-1 min-w-0">
             <h1 className="text-xl font-bold text-white leading-tight flex items-center gap-2">
               <Trophy size={18} className="text-emerald-400" />

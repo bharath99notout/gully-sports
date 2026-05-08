@@ -8,12 +8,14 @@ import Button from '@/components/ui/Button';
 import Input from '@/components/ui/Input';
 import Card from '@/components/ui/Card';
 import { SportType } from '@/types';
+import SportIcon from '@/components/SportIcon';
 
-const sports: { value: SportType; label: string; emoji: string }[] = [
-  { value: 'cricket',      label: 'Cricket',      emoji: '🏏' },
-  { value: 'football',     label: 'Football',     emoji: '⚽' },
-  { value: 'badminton',    label: 'Badminton',    emoji: '🏸' },
-  { value: 'table_tennis', label: 'T. Tennis',    emoji: '🏓' },
+const sports: { value: SportType; label: string }[] = [
+  { value: 'cricket',      label: 'Cricket' },
+  { value: 'football',     label: 'Football' },
+  { value: 'badminton',    label: 'Badminton' },
+  { value: 'table_tennis', label: 'T. Tennis' },
+  { value: 'foosball',     label: 'Foosball' },
 ];
 
 /**
@@ -140,7 +142,7 @@ function NewTeamForm() {
                         : 'border-gray-700 bg-gray-800 text-gray-400 hover:border-gray-600'
                   }`}
                 >
-                  <span className="text-xl">{s.emoji}</span>
+                  <SportIcon sport={s.value} className="text-xl" />
                   {s.label}
                 </button>
               ))}

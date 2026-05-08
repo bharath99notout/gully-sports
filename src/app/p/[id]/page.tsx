@@ -11,6 +11,7 @@ import { fetchPlayerDetailedStats } from '@/lib/playerDetailedStats';
 import CricketStatsSection from '@/components/CricketStatsSection';
 import FootballStatsPanel from '@/components/FootballStatsPanel';
 import RacquetStatsPanel from '@/components/RacquetStatsPanel';
+import FoosballStatsPanel from '@/components/FoosballStatsPanel';
 import { calcCaliber, getCaliberLabel, getPlayerTaglines, SportKey } from '@/lib/caliber';
 import { headers } from 'next/headers';
 
@@ -133,6 +134,9 @@ export default async function PublicProfilePage({ params }: Props) {
   }
   if (detailedStats.tableTennis.matches > 0) {
     expandableDetails.table_tennis = <RacquetStatsPanel detail={detailedStats.tableTennis} />;
+  }
+  if (detailedStats.foosball.matches > 0) {
+    expandableDetails.foosball = <FoosballStatsPanel detail={detailedStats.foosball} />;
   }
 
   const playerMatchIds = new Set((allStats ?? []).map((s: { match_id: string }) => s.match_id));

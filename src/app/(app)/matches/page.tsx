@@ -3,6 +3,7 @@ import Link from 'next/link';
 import { Plus, Calendar } from 'lucide-react';
 import Card from '@/components/ui/Card';
 import SportBadge from '@/components/SportBadge';
+import SportIcon from '@/components/SportIcon';
 import DeleteSuccessBanner from '@/components/DeleteSuccessBanner';
 import { Match, SportType } from '@/types';
 
@@ -56,10 +57,12 @@ export default async function MatchesPage({
     matches = (data ?? []) as Match[];
   }
 
-  const sports: { value: SportType; emoji: string }[] = [
-    { value: 'cricket', emoji: '🏏' },
-    { value: 'football', emoji: '⚽' },
-    { value: 'badminton', emoji: '🏸' },
+  const sports: { value: SportType }[] = [
+    { value: 'cricket' },
+    { value: 'football' },
+    { value: 'badminton' },
+    { value: 'table_tennis' },
+    { value: 'foosball' },
   ];
 
   return (
@@ -91,7 +94,7 @@ export default async function MatchesPage({
             href={`/matches?sport=${s.value}`}
             className={`text-xs px-3 py-1.5 rounded-full border transition-colors ${sport === s.value ? 'bg-gray-700 border-gray-600 text-white' : 'border-gray-700 text-gray-400 hover:border-gray-600'}`}
           >
-            {s.emoji} {s.value}
+            <SportIcon sport={s.value} className="mr-1" /> {s.value.replace('_', ' ')}
           </Link>
         ))}
         {['live', 'upcoming', 'completed'].map(st => (

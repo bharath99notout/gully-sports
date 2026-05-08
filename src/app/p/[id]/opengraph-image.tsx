@@ -22,6 +22,7 @@ const SPORT_META: Record<SportKey, { emoji: string; label: string }> = {
   football:     { emoji: '⚽', label: 'Football' },
   badminton:    { emoji: '🏸', label: 'Badminton' },
   table_tennis: { emoji: '🏓', label: 'T. Tennis' },
+  foosball:     { emoji: '🥅', label: 'Foosball' },
 };
 
 export default async function ProfileOgImage({

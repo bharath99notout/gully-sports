@@ -1,18 +1,20 @@
 'use client';
 
 import { useState } from 'react';
+import SportIcon from '@/components/SportIcon';
 
-type SportKey = 'cricket' | 'football' | 'badminton' | 'table_tennis';
+type SportKey = 'cricket' | 'football' | 'badminton' | 'table_tennis' | 'foosball';
 interface SportStat {
   matches: number; wins: number; runs: number;
   wickets: number; catches: number; goals: number;
 }
 
-const tabs: { key: SportKey; emoji: string; label: string }[] = [
-  { key: 'cricket',      emoji: '🏏', label: 'Cricket' },
-  { key: 'football',     emoji: '⚽', label: 'Football' },
-  { key: 'badminton',    emoji: '🏸', label: 'Badminton' },
-  { key: 'table_tennis', emoji: '🏓', label: 'T. Tennis' },
+const tabs: { key: SportKey; label: string }[] = [
+  { key: 'cricket',      label: 'Cricket' },
+  { key: 'football',     label: 'Football' },
+  { key: 'badminton',    label: 'Badminton' },
+  { key: 'table_tennis', label: 'T. Tennis' },
+  { key: 'foosball',     label: 'Foosball' },
 ];
 
 export default function SportStatsCard({ sportStats }: { sportStats: Record<SportKey, SportStat> }) {
@@ -30,7 +32,7 @@ export default function SportStatsCard({ sportStats }: { sportStats: Record<Spor
                 ? 'border-b-2 border-emerald-500 text-white font-medium'
                 : 'text-gray-600 hover:text-gray-400'
             }`}>
-            <span>{t.emoji}</span>
+            <SportIcon sport={t.key} />
             <span className="hidden sm:inline">{t.label}</span>
           </button>
         ))}

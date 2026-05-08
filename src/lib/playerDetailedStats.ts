@@ -1,8 +1,10 @@
 import { createClient } from './supabase/server';
 import {
   buildCricketDetail, buildFootballDetail, buildRacquetDetail,
-  buildRacquetMatchInputs, enrichStatsWithTeamNames,
-  type CricketDetail, type FootballDetail, type RacquetDetail, type RawStat,
+  buildRacquetMatchInputs, buildFoosballDetail, buildFoosballMatchInputs,
+  enrichStatsWithTeamNames,
+  type CricketDetail, type FootballDetail, type RacquetDetail,
+  type FoosballDetail, type RawStat,
 } from './athleteData';
 
 /**
@@ -17,6 +19,7 @@ export interface DetailedStats {
   football:    FootballDetail;
   badminton:   RacquetDetail;
   tableTennis: RacquetDetail;
+  foosball:    FoosballDetail;
 }
 
 export async function fetchPlayerDetailedStats(
@@ -36,29 +39,42 @@ export async function fetchPlayerDetailedStats(
   const racquetRows = enriched.filter(
     r => r.sport === 'badminton' || r.sport === 'table_tennis',
   );
+  const foosballRows = enriched.filter(r => r.sport === 'foosball');
 
-  if (racquetRows.length === 0) {
-    const empty = (await import('./athleteData')).emptyRacquetDetail();
-    return { cricket, football, badminton: empty, tableTennis: empty };
+  if (racquetRows.length === 0 && foosballRows.length === 0) {
+    const ad = await import('./athleteData');
+    const empty = ad.emptyRacquetDetail();
+    return {
+      cricket, football,
+      badminton: empty,
+      tableTennis: empty,
+      foosball: ad.emptyFoosballDetail(),
+    };
   }
 
-  // Need set scores + every team's roster for these matches.
-  const racquetMatchIds = [...new Set(racquetRows.map(r => r.match_id))];
+  // We need match_players (rosters) and matches (played_at) for both racquet
+  // and foosball matches. match_scores is racquet-only (sets).
+  const racquetMatchIds  = [...new Set(racquetRows.map(r => r.match_id))];
+  const foosballMatchIds = [...new Set(foosballRows.map(r => r.match_id))];
+  const allDetailMatchIds = [...new Set([...racquetMatchIds, ...foosballMatchIds])];
+
   const supabase = await createClient();
 
   const [{ data: matchScores }, { data: allMatchPlayers }, { data: matchMeta }] = await Promise.all([
-    supabase
-      .from('match_scores')
-      .select('match_id, team_name, sets')
-      .in('match_id', racquetMatchIds),
+    racquetMatchIds.length > 0
+      ? supabase
+          .from('match_scores')
+          .select('match_id, team_name, sets')
+          .in('match_id', racquetMatchIds)
+      : Promise.resolve({ data: [] as Array<{ match_id: string; team_name: string; sets: number[] | null }> }),
     supabase
       .from('match_players')
       .select('match_id, player_id, team_name')
-      .in('match_id', racquetMatchIds),
+      .in('match_id', allDetailMatchIds),
     supabase
       .from('matches')
       .select('id, played_at, sport')
-      .in('id', racquetMatchIds),
+      .in('id', allDetailMatchIds),
   ]);
 
   const scoresByMatch = new Map<string, Array<{ team_name: string; sets: number[] | null }>>();
@@ -73,15 +89,28 @@ export async function fetchPlayerDetailedStats(
     sportByMatch.set(m.id, m.sport);
   }
 
+  const ad = await import('./athleteData');
+  const emptyRacquet = ad.emptyRacquetDetail();
+
   const badmintonRows   = racquetRows.filter(r => sportByMatch.get(r.match_id) === 'badminton');
   const tableTennisRows = racquetRows.filter(r => sportByMatch.get(r.match_id) === 'table_tennis');
 
-  const badminton = buildRacquetDetail(buildRacquetMatchInputs(
-    badmintonRows, allMatchPlayers ?? [], scoresByMatch, playedAtByMatch, playerId, true,
-  ));
-  const tableTennis = buildRacquetDetail(buildRacquetMatchInputs(
-    tableTennisRows, allMatchPlayers ?? [], scoresByMatch, playedAtByMatch, playerId, false,
-  ));
+  const badminton = badmintonRows.length > 0
+    ? buildRacquetDetail(buildRacquetMatchInputs(
+        badmintonRows, allMatchPlayers ?? [], scoresByMatch, playedAtByMatch, playerId, true,
+      ))
+    : emptyRacquet;
+  const tableTennis = tableTennisRows.length > 0
+    ? buildRacquetDetail(buildRacquetMatchInputs(
+        tableTennisRows, allMatchPlayers ?? [], scoresByMatch, playedAtByMatch, playerId, false,
+      ))
+    : emptyRacquet;
 
-  return { cricket, football, badminton, tableTennis };
+  const foosball = foosballRows.length > 0
+    ? buildFoosballDetail(buildFoosballMatchInputs(
+        foosballRows, allMatchPlayers ?? [], playedAtByMatch, playerId,
+      ))
+    : ad.emptyFoosballDetail();
+
+  return { cricket, football, badminton, tableTennis, foosball };
 }

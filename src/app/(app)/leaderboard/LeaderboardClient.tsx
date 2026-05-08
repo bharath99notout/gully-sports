@@ -1,9 +1,9 @@
 'use client';
 
 import { useState } from 'react';
-import Link from 'next/link';
 import { SportKey } from '@/lib/caliber';
-import { getCaliberColor, getCaliberTierLabel } from '@/lib/caliber';
+import LeaderboardList, { type LeaderboardMode } from '@/components/LeaderboardList';
+import SportIcon from '@/components/SportIcon';
 
 export interface LeaderboardEntry {
   player_id: string;
@@ -15,188 +15,218 @@ export interface LeaderboardEntry {
   wins: number;
   runs: number;
   wickets: number;
+  catches: number;     // cricket: used by the Fielding rank-mode
   goals: number;
   sports_played?: number; // only used in the "All" tab
 }
 
 type TabKey = SportKey | 'all';
 
-const TABS: { key: TabKey; label: string; emoji: string }[] = [
-  { key: 'all',          label: 'All',       emoji: '🌟' },
-  { key: 'cricket',      label: 'Cricket',   emoji: '🏏' },
-  { key: 'football',     label: 'Football',  emoji: '⚽' },
-  { key: 'badminton',    label: 'Badminton', emoji: '🏸' },
-  { key: 'table_tennis', label: 'T. Tennis', emoji: '🏓' },
+const TABS: { key: TabKey; label: string }[] = [
+  { key: 'all',          label: 'All' },
+  { key: 'cricket',      label: 'Cricket' },
+  { key: 'football',     label: 'Football' },
+  { key: 'badminton',    label: 'Badminton' },
+  { key: 'table_tennis', label: 'T. Tennis' },
+  { key: 'foosball',     label: 'Foosball' },
 ];
 
-type Mode = 'skill' | 'points';
+type SetFormat = 'singles' | 'doubles';
 
-function medal(i: number) {
-  if (i === 0) return '🥇';
-  if (i === 1) return '🥈';
-  if (i === 2) return '🥉';
-  return `#${i + 1}`;
+/** Per-sport rank options. Universal (skill/points) come first, then
+ *  the sport's discipline ranks. Badminton/TT keep just the universal
+ *  pair — they get a Singles/Doubles toggle as a separate axis. */
+function modesForSport(tab: TabKey): { value: LeaderboardMode; label: string }[] {
+  switch (tab) {
+    case 'cricket':
+      return [
+        { value: 'skill',   label: '🎯 Skill' },
+        { value: 'points',  label: '🏆 Points' },
+        { value: 'runs',    label: '🏏 Top Run Scorer' },
+        { value: 'wickets', label: '🎳 Top Wicket Taker' },
+        { value: 'catches', label: '🧤 Most Catches' },
+      ];
+    case 'football':
+      return [
+        { value: 'skill',  label: '🎯 Skill' },
+        { value: 'points', label: '🏆 Points' },
+        { value: 'goals',  label: '⚽ Top Scorer' },
+        { value: 'wins',   label: '🥇 Most Wins' },
+      ];
+    case 'badminton':
+    case 'table_tennis':
+    case 'foosball':
+    case 'all':
+    default:
+      return [
+        { value: 'skill',  label: '🎯 Skill' },
+        { value: 'points', label: '🏆 Career Points' },
+      ];
+  }
 }
 
-function rowColor(i: number) {
-  if (i === 0) return 'bg-yellow-950/30 border-yellow-800/50';
-  if (i === 1) return 'bg-gray-800/40 border-gray-700/50';
-  if (i === 2) return 'bg-amber-950/20 border-amber-900/40';
-  return 'bg-gray-900/40 border-gray-800';
-}
-
-type BadmintonSub = 'singles' | 'doubles';
-
-export default function LeaderboardClient({ cricket, football, badmintonSingles, badmintonDoubles, table_tennis, all }: {
+interface Props {
   cricket: LeaderboardEntry[];
   football: LeaderboardEntry[];
   badmintonSingles: LeaderboardEntry[];
   badmintonDoubles: LeaderboardEntry[];
-  table_tennis: LeaderboardEntry[];
+  /** TT split mirrors badminton — same singles/doubles heuristic. */
+  tableTennisSingles: LeaderboardEntry[];
+  tableTennisDoubles: LeaderboardEntry[];
+  /** Foosball — same heuristic as TT/badminton. */
+  foosballSingles: LeaderboardEntry[];
+  foosballDoubles: LeaderboardEntry[];
   all: LeaderboardEntry[];
-}) {
+}
+
+export default function LeaderboardClient({
+  cricket,
+  football,
+  badmintonSingles,
+  badmintonDoubles,
+  tableTennisSingles,
+  tableTennisDoubles,
+  foosballSingles,
+  foosballDoubles,
+  all,
+}: Props) {
   const [active, setActive] = useState<TabKey>('all');
-  const [mode, setMode] = useState<Mode>('points');
-  const [badmintonSub, setBadmintonSub] = useState<BadmintonSub>('singles');
+  const [mode, setMode] = useState<LeaderboardMode>('points');
+  const [setFormat, setSetFormat] = useState<SetFormat>('singles');
 
-  const badmintonActive = active === 'badminton' ? (badmintonSub === 'singles' ? badmintonSingles : badmintonDoubles) : [];
+  // Active entries depend on sport (and, for set sports, the format toggle).
+  const entries: LeaderboardEntry[] =
+      active === 'all'          ? all
+    : active === 'cricket'      ? cricket
+    : active === 'football'     ? football
+    : active === 'badminton'    ? (setFormat === 'singles' ? badmintonSingles : badmintonDoubles)
+    : active === 'table_tennis' ? (setFormat === 'singles' ? tableTennisSingles : tableTennisDoubles)
+    : /* foosball */              (setFormat === 'singles' ? foosballSingles : foosballDoubles);
 
-  const base =
-    active === 'all'          ? all :
-    active === 'cricket'      ? cricket :
-    active === 'football'     ? football :
-    active === 'badminton'    ? badmintonActive :
-    table_tennis;
-  const entries = [...base].sort((a, b) =>
-    mode === 'skill' ? b.score - a.score : b.points - a.points
-  );
+  const modes = modesForSport(active);
+  // If the user changes sports and the previous mode no longer applies
+  // (e.g. they were on Wickets and switched to football), fall back to
+  // Points which is universal.
+  const safeMode: LeaderboardMode = modes.some(m => m.value === mode) ? mode : 'points';
+
+  const isSetSport = active === 'badminton' || active === 'table_tennis' || active === 'foosball';
+
+  // Headline counts on the sport tab — for set sports we count distinct
+  // player IDs across both formats so the chip reflects "people who have
+  // played this sport at all".
+  const tabCount = (k: TabKey): number => {
+    if (k === 'all')          return all.length;
+    if (k === 'cricket')      return cricket.length;
+    if (k === 'football')     return football.length;
+    if (k === 'badminton') {
+      const ids = new Set([...badmintonSingles.map(e => e.player_id), ...badmintonDoubles.map(e => e.player_id)]);
+      return ids.size;
+    }
+    if (k === 'table_tennis') {
+      const ids = new Set([...tableTennisSingles.map(e => e.player_id), ...tableTennisDoubles.map(e => e.player_id)]);
+      return ids.size;
+    }
+    if (k === 'foosball') {
+      const ids = new Set([...foosballSingles.map(e => e.player_id), ...foosballDoubles.map(e => e.player_id)]);
+      return ids.size;
+    }
+    return 0;
+  };
 
   return (
     <div className="flex flex-col gap-4">
-      {/* Sport tabs */}
-      <div className="flex bg-gray-900 border border-gray-800 rounded-xl p-1">
-        {TABS.map(t => {
-          const badmintonPlayerIds = new Set([
-            ...badmintonSingles.map(e => e.player_id),
-            ...badmintonDoubles.map(e => e.player_id),
-          ]);
-          const count =
-            t.key === 'all'          ? all.length :
-            t.key === 'cricket'      ? cricket.length :
-            t.key === 'football'     ? football.length :
-            t.key === 'badminton'    ? badmintonPlayerIds.size :
-            table_tennis.length;
-          return (
-            <button key={t.key} onClick={() => { setActive(t.key); if (t.key === 'badminton') setBadmintonSub('singles'); }}
-              className={`flex-1 py-2 text-sm font-semibold rounded-lg transition-colors ${
-                active === t.key ? 'bg-gray-700 text-white' : 'text-gray-500 hover:text-gray-300'
-              }`}>
-              <span>{t.emoji} {t.label}</span>
-              <span className="text-xs font-normal text-gray-500 ml-1">({count})</span>
-            </button>
-          );
-        })}
+      {/* Sport tabs — grid wraps to a second row on narrow screens so users
+          never have to discover horizontal scroll to find a sport. */}
+      <div className="grid grid-cols-3 sm:grid-cols-6 gap-1 bg-gray-900 border border-gray-800 rounded-xl p-1">
+        {TABS.map(t => (
+          <button
+            key={t.key}
+            type="button"
+            onClick={() => {
+              setActive(t.key);
+              // Reset rank mode when switching sports — the previous mode
+              // may not apply (e.g. "Wickets" makes no sense in football).
+              setMode('points');
+              if (t.key === 'badminton' || t.key === 'table_tennis' || t.key === 'foosball') setSetFormat('singles');
+            }}
+            className={`py-2 px-1 text-xs sm:text-sm font-semibold rounded-lg transition-colors text-center ${
+              active === t.key ? 'bg-gray-700 text-white' : 'text-gray-500 hover:text-gray-300'
+            }`}
+          >
+            <span className="block truncate">
+              {t.key === 'all' ? <span className="mr-0.5">🌟</span> : <SportIcon sport={t.key} className="mr-1" />}
+              {t.label}
+            </span>
+            <span className="text-[10px] font-normal text-gray-500">({tabCount(t.key)})</span>
+          </button>
+        ))}
       </div>
 
-      {/* Badminton: singles vs doubles use different match histories */}
-      {active === 'badminton' && (
+      {/* Singles / Doubles toggle for set sports */}
+      {isSetSport && (
         <div className="flex bg-gray-900/80 border border-gray-800 rounded-xl p-1 gap-1">
-          {(['singles', 'doubles'] as const).map((sub) => (
-            <button
-              key={sub}
-              type="button"
-              onClick={() => setBadmintonSub(sub)}
-              className={`flex-1 py-2 text-xs font-semibold rounded-lg transition-colors ${
-                badmintonSub === sub ? 'bg-emerald-900/40 text-emerald-200 border border-emerald-800/50' : 'text-gray-500 hover:text-gray-300'
-              }`}
-            >
-              {sub === 'singles' ? '🧍 Singles' : '👥 Doubles'}
-              <span className="block text-[10px] font-normal text-gray-500 mt-0.5">
-                ({sub === 'singles' ? badmintonSingles.length : badmintonDoubles.length} ranked)
-              </span>
-            </button>
-          ))}
-        </div>
-      )}
-
-      {/* Mode toggle — Skill vs Points */}
-      <div className="flex items-center gap-2 text-xs">
-        <span className="text-gray-500">Rank by:</span>
-        <div className="flex bg-gray-900 border border-gray-800 rounded-lg p-0.5">
-          <button onClick={() => setMode('skill')}
-            className={`px-3 py-1 rounded font-semibold transition-colors ${
-              mode === 'skill' ? 'bg-emerald-700/50 text-emerald-200' : 'text-gray-500 hover:text-gray-300'
-            }`}>
-            🎯 Skill
-          </button>
-          <button onClick={() => setMode('points')}
-            className={`px-3 py-1 rounded font-semibold transition-colors ${
-              mode === 'points' ? 'bg-emerald-700/50 text-emerald-200' : 'text-gray-500 hover:text-gray-300'
-            }`}>
-            🏆 Career Points
-          </button>
-        </div>
-      </div>
-
-      {/* Leaderboard */}
-      {entries.length === 0 ? (
-        <div className="bg-gray-900 border border-gray-800 rounded-2xl p-8 text-center">
-          <p className="text-3xl mb-2">{TABS.find(t => t.key === active)!.emoji}</p>
-          <p className="text-sm text-gray-500">
-            {active === 'all' ? 'No players yet.' : `No players have played ${active.replace('_', ' ')} yet.`}
-          </p>
-        </div>
-      ) : (
-        <div className="flex flex-col gap-2">
-          {entries.map((e, i) => {
-            const { text: col } = getCaliberColor(e.score);
-            const tierLabel = active === 'all'
-              ? (e.sports_played ? `${e.sports_played} sport${e.sports_played > 1 ? 's' : ''} · ${e.wins}/${e.matches} wins` : 'No matches yet')
-              : getCaliberTierLabel(e.score, [active as SportKey]);
+          {(['singles', 'doubles'] as const).map(sub => {
+            const count =
+              active === 'badminton'
+                ? (sub === 'singles' ? badmintonSingles.length : badmintonDoubles.length)
+              : active === 'table_tennis'
+                ? (sub === 'singles' ? tableTennisSingles.length : tableTennisDoubles.length)
+              : /* foosball */
+                (sub === 'singles' ? foosballSingles.length : foosballDoubles.length);
             return (
-              <Link key={e.player_id} href={`/players/${e.player_id}`}
-                className={`flex items-center gap-3 px-3 py-2.5 rounded-xl border transition-colors hover:bg-gray-800/60 ${rowColor(i)}`}>
-                <div className="w-8 text-center text-sm font-bold shrink-0">{medal(i)}</div>
-
-                {e.avatar_url ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img src={e.avatar_url} alt={e.name}
-                    className="w-10 h-10 rounded-full border-2 border-gray-800 object-cover shrink-0" />
-                ) : (
-                  <div className="w-10 h-10 rounded-full bg-gradient-to-br from-emerald-500 to-teal-700 flex items-center justify-center text-sm font-bold text-white border-2 border-gray-800 shrink-0">
-                    {e.name[0]?.toUpperCase() ?? '?'}
-                  </div>
-                )}
-
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-bold text-white truncate">{e.name}</p>
-                  <p className={`text-xs truncate ${col}`}>{tierLabel}</p>
-                </div>
-
-                <div className="text-right shrink-0">
-                  {mode === 'skill' ? (
-                    <>
-                      <p className={`text-xl font-black tabular-nums leading-none ${col}`}>{e.score}</p>
-                      <p className="text-[10px] text-gray-500 mt-1 tabular-nums">
-                        {e.points.toLocaleString()} pts
-                      </p>
-                    </>
-                  ) : (
-                    <>
-                      <p className="text-xl font-black tabular-nums leading-none text-white">
-                        {e.points.toLocaleString()}
-                      </p>
-                      <p className={`text-[10px] mt-1 tabular-nums ${col}`}>
-                        Skill {e.score}
-                      </p>
-                    </>
-                  )}
-                </div>
-              </Link>
+              <button
+                key={sub}
+                type="button"
+                onClick={() => setSetFormat(sub)}
+                className={`flex-1 py-2 text-xs font-semibold rounded-lg transition-colors ${
+                  setFormat === sub
+                    ? 'bg-emerald-900/40 text-emerald-200 border border-emerald-800/50'
+                    : 'text-gray-500 hover:text-gray-300'
+                }`}
+              >
+                {sub === 'singles' ? '🧍 Singles' : '👥 Doubles'}
+                <span className="block text-[10px] font-normal text-gray-500 mt-0.5">
+                  ({count} ranked)
+                </span>
+              </button>
             );
           })}
         </div>
       )}
+
+      {/* Rank-mode chips. For cricket/football this surfaces discipline
+          ranks (Top Run Scorer, Top Wicket Taker, etc) alongside the
+          universal Skill / Points pair. */}
+      <div className="flex flex-wrap gap-1.5 text-xs">
+        <span className="text-gray-500 self-center mr-1">Rank by:</span>
+        {modes.map(m => (
+          <button
+            key={m.value}
+            type="button"
+            onClick={() => setMode(m.value)}
+            className={`px-3 py-1 rounded-full font-semibold transition-colors border ${
+              safeMode === m.value
+                ? 'bg-emerald-700/50 text-emerald-200 border-emerald-700/50'
+                : 'border-gray-800 bg-gray-900 text-gray-500 hover:text-gray-300 hover:border-gray-700'
+            }`}
+          >
+            {m.label}
+          </button>
+        ))}
+      </div>
+
+      <LeaderboardList
+        entries={entries}
+        mode={safeMode}
+        sport={active === 'all' ? 'all' : (active as SportKey)}
+        emptyMessage={
+          active === 'all'
+            ? 'No players yet.'
+            : isSetSport
+              ? `No ${setFormat} matches recorded for ${TABS.find(t => t.key === active)?.label} yet.`
+              : `No players have played ${active.replace('_', ' ')} yet.`
+        }
+      />
     </div>
   );
 }

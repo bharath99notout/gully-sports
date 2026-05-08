@@ -29,7 +29,7 @@ export default function EventLeaderboard({ sport, main, singles, doubles }: Prop
   const [mode, setMode] = useState<LeaderboardMode>('skill');
   const [setFormat, setSetFormat] = useState<'singles' | 'doubles'>('singles');
 
-  const isSetSport = sport === 'badminton' || sport === 'table_tennis';
+  const isSetSport = sport === 'badminton' || sport === 'table_tennis' || sport === 'foosball';
 
   const entries = !isSetSport
     ? main

@@ -9,12 +9,14 @@ import Card from '@/components/ui/Card';
 import { SportType, Team } from '@/types';
 import { UserPlus, X, Search } from 'lucide-react';
 import { recomputeEventCost } from '@/app/actions/events';
+import SportIcon from '@/components/SportIcon';
 
-const sports: { value: SportType; label: string; emoji: string }[] = [
-  { value: 'cricket',      label: 'Cricket',   emoji: '🏏' },
-  { value: 'football',     label: 'Football',  emoji: '⚽' },
-  { value: 'badminton',    label: 'Badminton', emoji: '🏸' },
-  { value: 'table_tennis', label: 'T. Tennis', emoji: '🏓' },
+const sports: { value: SportType; label: string }[] = [
+  { value: 'cricket',      label: 'Cricket' },
+  { value: 'football',     label: 'Football' },
+  { value: 'badminton',    label: 'Badminton' },
+  { value: 'table_tennis', label: 'T. Tennis' },
+  { value: 'foosball',     label: 'Foosball' },
 ];
 
 interface PickedPlayer { id: string; name: string; }
@@ -119,7 +121,10 @@ function NewMatchForm() {
     let sideAName = teamAName;
     let sideBName = teamBName;
 
-    const isRacket = sport === 'badminton' || sport === 'table_tennis';
+    // Side-picker sports — no team rosters, sides are just lists of players,
+    // match starts in 'live' status. Foosball is included because it's
+    // played the same way (singles/doubles, no big roster).
+    const isRacket = sport === 'badminton' || sport === 'table_tennis' || sport === 'foosball';
 
     if (isRacket) {
       if (sideAPlayers.length === 0 || sideBPlayers.length === 0) {
@@ -259,7 +264,7 @@ function NewMatchForm() {
                       ? 'border-emerald-500 bg-emerald-900/30 text-emerald-400'
                       : 'border-gray-700 bg-gray-800 text-gray-400 hover:border-gray-600'
                   }`}>
-                  <span className="text-xl">{s.emoji}</span>
+                  <SportIcon sport={s.value} className="text-xl" />
                   {s.label}
                 </button>
               ))}
@@ -363,8 +368,23 @@ function NewMatchForm() {
             </div>
           )}
 
+          {/* Foosball — just two side pickers, no best-of / target points
+              (we don't track set scoring for foosball; host just declares
+              the winner). Sides go up to 2 players → 2 = doubles. */}
+          {sport === 'foosball' && (
+            <div className="flex flex-col gap-2">
+              <p className="text-[11px] text-gray-500">
+                Add up to 2 players per side — 2 makes it doubles. Host declares the winner after the match.
+              </p>
+              <div className="grid grid-cols-2 gap-3">
+                <SidePicker label="Side A" players={sideAPlayers} setPlayers={setSideAPlayers} />
+                <SidePicker label="Side B" players={sideBPlayers} setPlayers={setSideBPlayers} />
+              </div>
+            </div>
+          )}
+
           {/* Cricket / Football team name inputs */}
-          {sport !== 'badminton' && sport !== 'table_tennis' && (
+          {sport !== 'badminton' && sport !== 'table_tennis' && sport !== 'foosball' && (
             tournamentIdParam ? (
               // Tournament context: lock both teams to the tournament's roster
               // so player_match_stats roll up correctly into standings.

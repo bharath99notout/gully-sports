@@ -4,7 +4,18 @@ import Link from 'next/link';
 import { getCaliberColor, getCaliberTierLabel, type SportKey } from '@/lib/caliber';
 import type { LeaderboardEntry } from '@/app/(app)/leaderboard/LeaderboardClient';
 
-export type LeaderboardMode = 'skill' | 'points';
+/**
+ * Rank modes — what to sort by and what to display as the headline number
+ * on each row.
+ *
+ *   skill / points     — universal, work for any sport.
+ *   runs / wickets /
+ *   catches            — cricket-specific disciplines.
+ *   goals / wins       — football-specific disciplines (wins also valid
+ *                        for any sport, but right now only football
+ *                        surfaces it as a discrete rank-mode).
+ */
+export type LeaderboardMode = 'skill' | 'points' | 'runs' | 'wickets' | 'catches' | 'goals' | 'wins';
 
 function medal(i: number): string {
   if (i === 0) return '🥇';
@@ -20,16 +31,80 @@ function rowColor(i: number): string {
   return 'bg-gray-900/40 border-gray-800';
 }
 
+function sortValue(e: LeaderboardEntry, mode: LeaderboardMode): number {
+  switch (mode) {
+    case 'skill':   return e.score;
+    case 'points':  return e.points;
+    case 'runs':    return e.runs;
+    case 'wickets': return e.wickets;
+    case 'catches': return e.catches;
+    case 'goals':   return e.goals;
+    case 'wins':    return e.wins;
+  }
+}
+
+interface Headline { primary: string; primaryClass: string; secondary: string; secondaryClass: string }
+
+function headline(e: LeaderboardEntry, mode: LeaderboardMode, caliberClass: string): Headline {
+  // Only Skill mode keeps caliber as the headline; every other mode uses
+  // the discipline stat as the primary number and surfaces caliber as the
+  // small secondary line so users still see the player's overall tier.
+  switch (mode) {
+    case 'skill':
+      return {
+        primary: String(e.score), primaryClass: caliberClass,
+        secondary: `${e.points.toLocaleString()} pts`, secondaryClass: 'text-gray-500',
+      };
+    case 'points':
+      return {
+        primary: e.points.toLocaleString(), primaryClass: 'text-white',
+        secondary: `Skill ${e.score}`, secondaryClass: caliberClass,
+      };
+    case 'runs':
+      return {
+        primary: String(e.runs), primaryClass: 'text-emerald-400',
+        secondary: `runs · ${e.matches} match${e.matches === 1 ? '' : 'es'}`,
+        secondaryClass: 'text-gray-500',
+      };
+    case 'wickets':
+      return {
+        primary: String(e.wickets), primaryClass: 'text-orange-400',
+        secondary: `wkts · ${e.matches} match${e.matches === 1 ? '' : 'es'}`,
+        secondaryClass: 'text-gray-500',
+      };
+    case 'catches':
+      return {
+        primary: String(e.catches), primaryClass: 'text-cyan-400',
+        secondary: `catches · ${e.matches} match${e.matches === 1 ? '' : 'es'}`,
+        secondaryClass: 'text-gray-500',
+      };
+    case 'goals':
+      return {
+        primary: String(e.goals), primaryClass: 'text-emerald-400',
+        secondary: `goals · ${e.matches} match${e.matches === 1 ? '' : 'es'}`,
+        secondaryClass: 'text-gray-500',
+      };
+    case 'wins':
+      return {
+        primary: String(e.wins), primaryClass: 'text-emerald-400',
+        secondary: `wins · ${e.matches} match${e.matches === 1 ? '' : 'es'}`,
+        secondaryClass: 'text-gray-500',
+      };
+  }
+}
+
 /**
- * Pure leaderboard row list — medal, avatar, caliber tier, headline number.
- * Shared by the global `/leaderboard` page and the per-event leaderboard
- * so both render identically: same medals, same avatar style, same
- * caliber-coloured tier label, same skill-vs-points secondary line.
+ * Pure leaderboard row list — medal, avatar, caliber tier label, headline
+ * number. Shared by the global `/leaderboard` page and the per-event
+ * leaderboard so both render identically: same medals, same avatar style,
+ * same caliber-coloured tier label.
  *
  * The caller decides:
- *   - `entries` — pre-sorted or unsorted; this component sorts by `mode`
- *   - `mode`   — 'skill' (rank by caliber) or 'points' (career points)
- *   - `sport`  — used for tier labelling; pass 'all' for cross-sport view
+ *   - `entries` — pre-built; this component sorts by `mode`
+ *   - `mode`   — universal (skill / points) or sport-specific
+ *                (runs / wickets / catches / goals / wins)
+ *   - `sport`  — used for the caliber tier label; pass 'all' for
+ *                cross-sport view
  */
 export default function LeaderboardList({
   entries, mode, sport, emptyMessage,
@@ -47,19 +122,34 @@ export default function LeaderboardList({
     );
   }
 
-  const sorted = [...entries].sort((a, b) =>
-    mode === 'skill' ? b.score - a.score : b.points - a.points
-  );
+  // Pull only the players who have a non-zero value for the chosen rank
+  // metric — a "Top Wicket Takers" list cluttered with 0-wicket batters
+  // hides the actual signal. Skill/Points modes are kept inclusive since
+  // 0 there means "unrated", which is itself a valid display.
+  const filtered = (mode === 'skill' || mode === 'points')
+    ? entries
+    : entries.filter(e => sortValue(e, mode) > 0);
+
+  const sorted = [...filtered].sort((a, b) => sortValue(b, mode) - sortValue(a, mode));
+
+  if (sorted.length === 0) {
+    return (
+      <p className="bg-gray-900 border border-gray-800 rounded-2xl p-6 text-sm text-gray-500 text-center">
+        {emptyMessage ?? 'No data for this rank yet.'}
+      </p>
+    );
+  }
 
   return (
     <div className="flex flex-col gap-2">
       {sorted.map((e, i) => {
-        const { text: col } = getCaliberColor(e.score);
+        const { text: caliberClass } = getCaliberColor(e.score);
         const tierLabel = sport === 'all'
           ? (e.sports_played
               ? `${e.sports_played} sport${e.sports_played > 1 ? 's' : ''} · ${e.wins}/${e.matches} wins`
               : 'No matches yet')
           : getCaliberTierLabel(e.score, [sport]);
+        const h = headline(e, mode, caliberClass);
         return (
           <Link
             key={e.player_id}
@@ -83,27 +173,12 @@ export default function LeaderboardList({
 
             <div className="flex-1 min-w-0">
               <p className="text-sm font-bold text-white truncate">{e.name}</p>
-              <p className={`text-xs truncate ${col}`}>{tierLabel}</p>
+              <p className={`text-xs truncate ${caliberClass}`}>{tierLabel}</p>
             </div>
 
             <div className="text-right shrink-0">
-              {mode === 'skill' ? (
-                <>
-                  <p className={`text-xl font-black tabular-nums leading-none ${col}`}>{e.score}</p>
-                  <p className="text-[10px] text-gray-500 mt-1 tabular-nums">
-                    {e.points.toLocaleString()} pts
-                  </p>
-                </>
-              ) : (
-                <>
-                  <p className="text-xl font-black tabular-nums leading-none text-white">
-                    {e.points.toLocaleString()}
-                  </p>
-                  <p className={`text-[10px] mt-1 tabular-nums ${col}`}>
-                    Skill {e.score}
-                  </p>
-                </>
-              )}
+              <p className={`text-xl font-black tabular-nums leading-none ${h.primaryClass}`}>{h.primary}</p>
+              <p className={`text-[10px] mt-1 tabular-nums ${h.secondaryClass}`}>{h.secondary}</p>
             </div>
           </Link>
         );

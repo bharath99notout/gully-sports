@@ -1,4 +1,4 @@
-export type SportKey = 'cricket' | 'football' | 'badminton' | 'table_tennis';
+export type SportKey = 'cricket' | 'football' | 'badminton' | 'table_tennis' | 'foosball';
 
 export interface SportStat {
   matches: number;
@@ -46,7 +46,9 @@ export function calcCaliber(sport: SportKey, s: SportStat): number {
     const perf = (Math.min(gpm, 2) / 2) * 0.6 + winRate * 0.4;
     return Math.min(100, Math.round((exp * 0.2 + perf * 0.8) * 100));
   }
-  // Badminton + Table Tennis — win-rate based
+  // Badminton + Table Tennis + Foosball — win-rate only. We don't track
+  // per-match goal counts for foosball (host just declares the winner)
+  // so the same exp+winRate formula applies.
   return Math.min(100, Math.round((exp * 0.2 + (s.wins / s.matches) * 0.8) * 100));
 }
 
@@ -76,6 +78,9 @@ const SPORT_TIER_NAMES: Record<SportKey, string[]> = {
   football:     ['Bench Warmer', 'Gully Striker',   'Street Footballer', 'Chhetri Mode',       'Neymar Mode',         'Messi Mode',          'Ronaldo Level'],
   badminton:    ['Bench Warmer', 'Shuttle Rookie',  'Net Rusher',        'Padukone Mode',      'Srikanth Mode',       'Lee Chong Wei Mode',  'Lin Dan Level'],
   table_tennis: ['Bench Warmer', 'Paddle Rookie',   'Topspin Hitter',    'Sharath Kamal Mode', 'Sathiyan Mode',       'Timo Boll Mode',      'Ma Long Level'],
+  // Foosball — Column A from the planning round: rod-spinning vocab,
+  // distinct from the racket-sport "Shuttler / Paddler" feel.
+  foosball:     ['Bench Warmer', 'Pin Cadet',       'Knob Twister',      'Snake Shooter',      'Rod Maestro',         'Table Maestro',       'Foos Sensei'],
 };
 
 const SPORT_TIER_EMOJIS: Record<SportKey, string[]> = {
@@ -83,6 +88,7 @@ const SPORT_TIER_EMOJIS: Record<SportKey, string[]> = {
   football:     ['🪑', '⚽', '💨', '🇮🇳', '🎭', '🐐', '🔥'],
   badminton:    ['🪑', '🏸', '💨', '⭐', '🏆', '🌟', '👑'],
   table_tennis: ['🪑', '🏓', '💥', '⭐', '🏆', '🎯', '👑'],
+  foosball:     ['🪑', '🥅', '💫', '🐍', '⭐', '🏆', '👑'],
 };
 
 function tierIndex(score: number): number {
@@ -114,13 +120,13 @@ export interface CaliberTier {
 }
 
 export const CALIBER_TIERS: CaliberTier[] = [
-  { label: 'Bench Warmer', range: '0',      min: 0,  max: 0,   index: 0, sportNames: { cricket: 'Bench Warmer',      football: 'Bench Warmer',       badminton: 'Bench Warmer',       table_tennis: 'Bench Warmer'       }, sportEmojis: { cricket: '🪑', football: '🪑', badminton: '🪑', table_tennis: '🪑' } },
-  { label: 'Rookie',       range: '1–24',   min: 1,  max: 24,  index: 1, sportNames: { cricket: 'Gully Star',         football: 'Gully Striker',      badminton: 'Shuttle Rookie',     table_tennis: 'Paddle Rookie'      }, sportEmojis: { cricket: '🌟', football: '⚽', badminton: '🏸', table_tennis: '🏓' } },
-  { label: 'Amateur',      range: '25–49',  min: 25, max: 49,  index: 2, sportNames: { cricket: 'Hard Hitter',        football: 'Street Footballer',  badminton: 'Net Rusher',         table_tennis: 'Topspin Hitter'     }, sportEmojis: { cricket: '💪', football: '💨', badminton: '💨', table_tennis: '💥' } },
-  { label: 'Pro',          range: '50–69',  min: 50, max: 69,  index: 3, sportNames: { cricket: 'Rohit Sharma Mode',  football: 'Chhetri Mode',       badminton: 'Padukone Mode',      table_tennis: 'Sharath Kamal Mode' }, sportEmojis: { cricket: '🏏', football: '🇮🇳', badminton: '⭐', table_tennis: '⭐' } },
-  { label: 'Expert',       range: '70–84',  min: 70, max: 84,  index: 4, sportNames: { cricket: 'Chris Gayle Mode',   football: 'Neymar Mode',        badminton: 'Srikanth Mode',      table_tennis: 'Sathiyan Mode'      }, sportEmojis: { cricket: '🔥', football: '🎭', badminton: '🏆', table_tennis: '🏆' } },
-  { label: 'Champion',     range: '85–94',  min: 85, max: 94,  index: 5, sportNames: { cricket: 'Virat Kohli Mode',   football: 'Messi Mode',         badminton: 'Lee Chong Wei Mode', table_tennis: 'Timo Boll Mode'     }, sportEmojis: { cricket: '👑', football: '🐐', badminton: '🌟', table_tennis: '🎯' } },
-  { label: 'Legend',       range: '95–100', min: 95, max: 100, index: 6, sportNames: { cricket: 'Sachin Level',       football: 'Ronaldo Level',      badminton: 'Lin Dan Level',      table_tennis: 'Ma Long Level'      }, sportEmojis: { cricket: '🏆', football: '🔥', badminton: '👑', table_tennis: '👑' } },
+  { label: 'Bench Warmer', range: '0',      min: 0,  max: 0,   index: 0, sportNames: { cricket: 'Bench Warmer',      football: 'Bench Warmer',       badminton: 'Bench Warmer',       table_tennis: 'Bench Warmer',       foosball: 'Bench Warmer'    }, sportEmojis: { cricket: '🪑', football: '🪑', badminton: '🪑', table_tennis: '🪑', foosball: '🪑' } },
+  { label: 'Rookie',       range: '1–24',   min: 1,  max: 24,  index: 1, sportNames: { cricket: 'Gully Star',         football: 'Gully Striker',      badminton: 'Shuttle Rookie',     table_tennis: 'Paddle Rookie',      foosball: 'Pin Cadet'       }, sportEmojis: { cricket: '🌟', football: '⚽', badminton: '🏸', table_tennis: '🏓', foosball: '🥅' } },
+  { label: 'Amateur',      range: '25–49',  min: 25, max: 49,  index: 2, sportNames: { cricket: 'Hard Hitter',        football: 'Street Footballer',  badminton: 'Net Rusher',         table_tennis: 'Topspin Hitter',     foosball: 'Knob Twister'    }, sportEmojis: { cricket: '💪', football: '💨', badminton: '💨', table_tennis: '💥', foosball: '💫' } },
+  { label: 'Pro',          range: '50–69',  min: 50, max: 69,  index: 3, sportNames: { cricket: 'Rohit Sharma Mode',  football: 'Chhetri Mode',       badminton: 'Padukone Mode',      table_tennis: 'Sharath Kamal Mode', foosball: 'Snake Shooter'   }, sportEmojis: { cricket: '🏏', football: '🇮🇳', badminton: '⭐', table_tennis: '⭐', foosball: '🐍' } },
+  { label: 'Expert',       range: '70–84',  min: 70, max: 84,  index: 4, sportNames: { cricket: 'Chris Gayle Mode',   football: 'Neymar Mode',        badminton: 'Srikanth Mode',      table_tennis: 'Sathiyan Mode',      foosball: 'Rod Maestro'     }, sportEmojis: { cricket: '🔥', football: '🎭', badminton: '🏆', table_tennis: '🏆', foosball: '⭐' } },
+  { label: 'Champion',     range: '85–94',  min: 85, max: 94,  index: 5, sportNames: { cricket: 'Virat Kohli Mode',   football: 'Messi Mode',         badminton: 'Lee Chong Wei Mode', table_tennis: 'Timo Boll Mode',     foosball: 'Table Maestro'   }, sportEmojis: { cricket: '👑', football: '🐐', badminton: '🌟', table_tennis: '🎯', foosball: '🏆' } },
+  { label: 'Legend',       range: '95–100', min: 95, max: 100, index: 6, sportNames: { cricket: 'Sachin Level',       football: 'Ronaldo Level',      badminton: 'Lin Dan Level',      table_tennis: 'Ma Long Level',      foosball: 'Foos Sensei'     }, sportEmojis: { cricket: '🏆', football: '🔥', badminton: '👑', table_tennis: '👑', foosball: '👑' } },
 ];
 
 // ── Personality taglines (replaces "Cricket Batsman" etc.) ───────────────────
@@ -129,13 +135,13 @@ export const CALIBER_TIERS: CaliberTier[] = [
 // Configurable: edit the strings below to customise labels.
 
 export function getPlayerTagline(sportStats: Record<SportKey, SportStat>): string {
-  const active = (['cricket', 'football', 'badminton', 'table_tennis'] as SportKey[]).filter(
+  const active = (['cricket', 'football', 'badminton', 'table_tennis', 'foosball'] as SportKey[]).filter(
     s => sportStats[s].matches > 0
   );
   if (active.length === 0) return 'New to GullySports';
   if (active.length >= 3)  return 'All-Round Athlete 🏆';
   if (active.length === 2) {
-    const icons: Record<SportKey, string> = { cricket: '🏏', football: '⚽', badminton: '🏸', table_tennis: '🏓' };
+    const icons: Record<SportKey, string> = { cricket: '🏏', football: '⚽', badminton: '🏸', table_tennis: '🏓', foosball: '🥅' };
     return `${icons[active[0]]}${icons[active[1]]} Multi-Sport Player`;
   }
 
@@ -196,17 +202,26 @@ export function getPlayerTagline(sportStats: Record<SportKey, SportStat>): strin
     return 'Rally Enthusiast';
   }
 
-  // table_tennis
-  const winRateTT = s.wins / s.matches;
-  if (score >= 80)       return 'Loop Master 🏓';
-  if (score >= 60)       return 'Spin Wizard';
-  if (winRateTT >= 0.6)  return 'Rally Killer';
-  if (score >= 30)       return 'Amateur Paddler';
-  return 'Ping Enthusiast';
+  if (sport === 'table_tennis') {
+    const winRateTT = s.wins / s.matches;
+    if (score >= 80)       return 'Loop Master 🏓';
+    if (score >= 60)       return 'Spin Wizard';
+    if (winRateTT >= 0.6)  return 'Rally Killer';
+    if (score >= 30)       return 'Amateur Paddler';
+    return 'Ping Enthusiast';
+  }
+
+  // foosball
+  const winRateF = s.wins / s.matches;
+  if (score >= 80)      return 'Foos Sensei 👑';
+  if (score >= 60)      return 'Snake Shooter 🐍';
+  if (winRateF >= 0.6)  return 'Rod Maestro';
+  if (score >= 30)      return 'Knob Twister';
+  return 'Pin Cadet';
 }
 
 export function getOverallLevel(sportStats: Record<SportKey, SportStat>): number {
-  const scores = (['cricket', 'football', 'badminton', 'table_tennis'] as SportKey[]).map(
+  const scores = (['cricket', 'football', 'badminton', 'table_tennis', 'foosball'] as SportKey[]).map(
     s => calcCaliber(s, sportStats[s])
   );
   const active = scores.filter(s => s > 0);
@@ -256,6 +271,11 @@ export function calcSportPoints(sport: SportKey, matches: PerMatchStat[]): numbe
       if (m.won) pts += 25;
       pts += (m.sets_won ?? 0) * 5;
       pts += (m.clean_sweeps ?? 0) * 15;
+    } else if (sport === 'foosball') {
+      // Foosball doesn't track set scoring — points come from playing
+      // and winning only. No sets_won / clean_sweep bonus.
+      pts += 5;
+      if (m.won) pts += 25;
     }
   }
   return pts;
@@ -270,10 +290,11 @@ const SPORT_SUFFIX: Record<SportKey, string> = {
   football:     'Footballer',
   badminton:    'Shuttler',
   table_tennis: 'Paddler',
+  foosball:     'Foosballer',
 };
 
 export function getPlayerTaglines(sportStats: Record<SportKey, SportStat>): string[] {
-  const sports: SportKey[] = ['cricket', 'football', 'badminton', 'table_tennis'];
+  const sports: SportKey[] = ['cricket', 'football', 'badminton', 'table_tennis', 'foosball'];
   return sports
     .filter(s => sportStats[s].matches > 0)
     .map(s => {

@@ -1,13 +1,7 @@
 import Link from 'next/link';
 import { Trophy, Plus } from 'lucide-react';
 import { createClient } from '@/lib/supabase/server';
-
-const SPORT_EMOJI: Record<string, string> = {
-  cricket: '🏏',
-  football: '⚽',
-  badminton: '🏸',
-  table_tennis: '🏓',
-};
+import SportIcon from '@/components/SportIcon';
 
 export default async function TournamentsListPage() {
   const supabase = await createClient();
@@ -79,7 +73,7 @@ function TournamentCard({ t }: { t: { id: string; name: string; sport: string; s
       href={`/tournaments/${t.id}`}
       className="bg-gray-900 border border-gray-800 hover:border-gray-700 rounded-2xl p-4 flex items-center gap-3 transition-colors"
     >
-      <span className="text-2xl shrink-0">{SPORT_EMOJI[t.sport] ?? '🏆'}</span>
+      <SportIcon sport={t.sport} className="text-2xl shrink-0" />
       <div className="flex-1 min-w-0">
         <p className="text-sm font-semibold text-white truncate">{t.name}</p>
         <p className="text-[11px] text-gray-500">

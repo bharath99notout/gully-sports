@@ -1,5 +1,6 @@
 import Link from 'next/link';
 import SportBarsList from './SportBarsList';
+import SportIcon from './SportIcon';
 import {
   calcCaliber, getPlayerTagline, getPlayerTaglines, getOverallLevel,
   getCaliberColor, getCaliberTierLabel, CALIBER_TIERS,
@@ -15,11 +16,15 @@ export interface AthleteData {
 }
 
 
+// Plain-text emoji is used in narrative strings (taglines / share images
+// where we can't inline a React component), 🥅 is the foosball stand-in.
+// In the card UI itself we render <SportIcon> below for the SVG version.
 const sportMeta: { key: SportKey; emoji: string; label: string }[] = [
   { key: 'cricket',      emoji: '🏏', label: 'Cricket' },
   { key: 'football',     emoji: '⚽', label: 'Football' },
   { key: 'badminton',    emoji: '🏸', label: 'Badminton' },
   { key: 'table_tennis', emoji: '🏓', label: 'Table Tennis' },
+  { key: 'foosball',     emoji: '🥅', label: 'Foosball' },
 ];
 
 function statLine(sport: SportKey, s: SportStat): string {
@@ -180,8 +185,8 @@ export default function AthleteCard({
         {compact && activeSports.length > 0 && (
           <div className="flex gap-1 mt-3">
             {activeSports.map(s => (
-              <span key={s.key} className="text-xs bg-gray-800 border border-gray-700 rounded-full px-2 py-0.5 text-gray-300">
-                {s.emoji} {s.label}
+              <span key={s.key} className="text-xs bg-gray-800 border border-gray-700 rounded-full px-2 py-0.5 text-gray-300 inline-flex items-center gap-1">
+                <SportIcon sport={s.key} /> {s.label}
               </span>
             ))}
           </div>
@@ -263,12 +268,14 @@ export function AthleteCardMini({ athlete }: { athlete: AthleteData }) {
         <p className="text-xs text-gray-600 mt-0.5 truncate">{tagline}</p>
 
         <div className="flex flex-col gap-1.5 mt-3">
-          {sportMeta.map(({ key, emoji }) => {
+          {sportMeta.map(({ key }) => {
             const score = calcCaliber(key, athlete.sportStats[key]);
             const { bar } = getCaliberColor(score);
             return (
               <div key={key} className="flex items-center gap-1.5">
-                <span className="text-xs w-4">{emoji}</span>
+                <span className="text-xs w-4 inline-flex items-center justify-center">
+                  <SportIcon sport={key} />
+                </span>
                 <div className="flex-1 bg-gray-800 rounded-full h-1.5 overflow-hidden">
                   <div className={`h-full rounded-full ${score === 0 ? 'bg-gray-800' : bar}`}
                     style={{ width: `${score}%` }} />

@@ -10,6 +10,7 @@ import { fetchPlayerDetailedStats } from '@/lib/playerDetailedStats';
 import CricketStatsSection from '@/components/CricketStatsSection';
 import FootballStatsPanel from '@/components/FootballStatsPanel';
 import RacquetStatsPanel from '@/components/RacquetStatsPanel';
+import FoosballStatsPanel from '@/components/FoosballStatsPanel';
 import ShareButton from '@/components/ShareButton';
 import { headers } from 'next/headers';
 import { calcCaliber, getCaliberLabel, getPlayerTaglines, SportKey } from '@/lib/caliber';
@@ -125,6 +126,9 @@ export default async function PublicPlayerPage({ params }: Props) {
   if (detailedStats.tableTennis.matches > 0) {
     expandableDetails.table_tennis = <RacquetStatsPanel detail={detailedStats.tableTennis} />;
   }
+  if (detailedStats.foosball.matches > 0) {
+    expandableDetails.foosball = <FoosballStatsPanel detail={detailedStats.foosball} />;
+  }
 
   const playerMatchIds = new Set((allStats ?? []).map((s: { match_id: string }) => s.match_id));
   const feedMatches = (rawMatches ?? [])
@@ -155,7 +159,15 @@ export default async function PublicPlayerPage({ params }: Props) {
     .map(s => {
       const score = calcCaliber(s, athleteData.sportStats[s]);
       const label = getCaliberLabel(score);
-      const emoji = s === 'cricket' ? '🏏' : s === 'football' ? '⚽' : s === 'badminton' ? '🏸' : '🏓';
+      // Plain-text emoji for the WhatsApp share — `🥅` stands in for foosball
+      // since the SVG icon can't be inlined into a string payload.
+      const emoji =
+          s === 'cricket'      ? '🏏'
+        : s === 'football'     ? '⚽'
+        : s === 'badminton'    ? '🏸'
+        : s === 'table_tennis' ? '🏓'
+        : s === 'foosball'     ? '🥅'
+        :                        '🎯';
       return `${emoji} ${label} (${score})`;
     });
   const shareText = [

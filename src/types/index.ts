@@ -1,4 +1,4 @@
-export type SportType = 'cricket' | 'football' | 'badminton' | 'table_tennis';
+export type SportType = 'cricket' | 'football' | 'badminton' | 'table_tennis' | 'foosball';
 export type MatchStatus = 'upcoming' | 'live' | 'completed';
 
 export interface Profile {

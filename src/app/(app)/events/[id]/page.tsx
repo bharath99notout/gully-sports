@@ -9,6 +9,7 @@ import CostSplitSection from './CostSplitSection';
 import EventMatchesSection from './EventMatchesSection';
 import HostControls from './HostControls';
 import { formatEventDateTime } from '@/lib/formatDateTime';
+import SportIcon from '@/components/SportIcon';
 import type { SportType } from '@/types';
 
 /** Build a Google Maps "search by name" URL — works without coordinates and
@@ -16,10 +17,6 @@ import type { SportType } from '@/types';
 function googleMapsSearchUrl(query: string): string {
   return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(query)}`;
 }
-
-const SPORT_EMOJI: Record<string, string> = {
-  cricket: '🏏', football: '⚽', badminton: '🏸', table_tennis: '🏓',
-};
 
 interface RsvpRow {
   id: string;
@@ -113,7 +110,7 @@ export default async function EventDetailPage({
 
       <header className="bg-gradient-to-br from-emerald-900/30 to-gray-900 border border-emerald-900/40 rounded-2xl p-5">
         <div className="flex items-start gap-3">
-          <span className="text-3xl shrink-0">{SPORT_EMOJI[event.sport] ?? '🎯'}</span>
+          <SportIcon sport={event.sport} className="text-3xl shrink-0" />
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2 flex-wrap">
               <h1 className="text-xl font-bold text-white leading-tight">{event.name}</h1>

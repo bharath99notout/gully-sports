@@ -221,6 +221,131 @@ export function buildRacquetMatchInputs(
   return out;
 }
 
+// ── Foosball detail ───────────────────────────────────────────────────────────
+
+/** Per-match input for foosball — no sets, just won/format/playedAt. */
+export interface FoosballMatchInput {
+  match_id: string;
+  hasResult: boolean;
+  won: boolean;
+  format?: 'singles' | 'doubles';
+  playedAt?: string | null;
+}
+
+export interface FoosballDetail {
+  matches: number;
+  wins: number;
+  losses: number;
+  winRate: number;
+  longestWinStreak: number;
+  singlesMatches: number;
+  singlesWins: number;
+  doublesMatches: number;
+  doublesWins: number;
+}
+
+export function emptyFoosballDetail(): FoosballDetail {
+  return {
+    matches: 0, wins: 0, losses: 0, winRate: 0, longestWinStreak: 0,
+    singlesMatches: 0, singlesWins: 0, doublesMatches: 0, doublesWins: 0,
+  };
+}
+
+export function buildFoosballMatchInputs(
+  rows: RawStat[],
+  allMatchPlayers: Array<{ match_id: string; player_id: string; team_name: string }>,
+  playedAtByMatch: Map<string, string | null>,
+  myPlayerId: string,
+): FoosballMatchInput[] {
+  const seen = new Set<string>();
+  const out: FoosballMatchInput[] = [];
+
+  // Pre-build per-match team rosters for format detection
+  const rosterByMatch = new Map<string, Map<string, Set<string>>>();
+  for (const mp of allMatchPlayers) {
+    if (!rosterByMatch.has(mp.match_id)) rosterByMatch.set(mp.match_id, new Map());
+    const teams = rosterByMatch.get(mp.match_id)!;
+    if (!teams.has(mp.team_name)) teams.set(mp.team_name, new Set());
+    teams.get(mp.team_name)!.add(mp.player_id);
+  }
+
+  for (const r of rows) {
+    if (seen.has(r.match_id)) continue;
+    seen.add(r.match_id);
+
+    const myTeam = r.my_team_name
+      ?? allMatchPlayers.find(mp => mp.match_id === r.match_id && mp.player_id === myPlayerId)?.team_name
+      ?? null;
+
+    const winner = r.matches?.winner_team_name ?? null;
+    const hasResult = !!winner;
+    const won = !!(myTeam && winner && winner === myTeam);
+
+    let format: 'singles' | 'doubles' | undefined;
+    const teams = rosterByMatch.get(r.match_id);
+    if (teams && teams.size >= 2) {
+      const counts = [...teams.values()].map(s => s.size);
+      format = counts.every(c => c === 1) ? 'singles' : 'doubles';
+    }
+
+    out.push({
+      match_id: r.match_id,
+      hasResult,
+      won,
+      format,
+      playedAt: playedAtByMatch.get(r.match_id) ?? null,
+    });
+  }
+
+  return out;
+}
+
+export function buildFoosballDetail(matches: FoosballMatchInput[]): FoosballDetail {
+  if (matches.length === 0) return emptyFoosballDetail();
+
+  let wins = 0, losses = 0;
+  let singlesMatches = 0, singlesWins = 0, doublesMatches = 0, doublesWins = 0;
+
+  const ordered = [...matches].sort((a, b) => {
+    const ta = a.playedAt ? new Date(a.playedAt).getTime() : 0;
+    const tb = b.playedAt ? new Date(b.playedAt).getTime() : 0;
+    return ta - tb;
+  });
+
+  let resulted = 0;
+  let curStreak = 0, longestStreak = 0;
+
+  for (const m of ordered) {
+    if (m.hasResult) {
+      resulted += 1;
+      if (m.won) {
+        wins += 1;
+        curStreak += 1;
+        if (curStreak > longestStreak) longestStreak = curStreak;
+      } else {
+        losses += 1;
+        curStreak = 0;
+      }
+    }
+
+    if (m.format === 'singles') {
+      singlesMatches += 1;
+      if (m.won) singlesWins += 1;
+    } else if (m.format === 'doubles') {
+      doublesMatches += 1;
+      if (m.won) doublesWins += 1;
+    }
+  }
+
+  return {
+    matches: matches.length,
+    wins, losses,
+    winRate: resulted > 0 ? wins / resulted : 0,
+    longestWinStreak: longestStreak,
+    singlesMatches, singlesWins, doublesMatches, doublesWins,
+  };
+}
+
 export function buildRacquetDetail(matches: RacquetMatchInput[]): RacquetDetail {
   if (matches.length === 0) return emptyRacquetDetail();
 
@@ -440,7 +565,7 @@ export function buildAthleteData(
   profile: { id: string; name: string; avatar_url?: string | null; created_at: string },
   stats: RawStat[]
 ): AthleteData {
-  const sports: SportKey[] = ['cricket', 'football', 'badminton', 'table_tennis'];
+  const sports: SportKey[] = ['cricket', 'football', 'badminton', 'table_tennis', 'foosball'];
 
   const sportStats = sports.reduce((acc, sport) => {
     const rows = stats.filter(s => s.sport === sport);

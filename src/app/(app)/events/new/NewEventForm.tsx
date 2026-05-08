@@ -5,13 +5,15 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { Loader2 } from 'lucide-react';
 import { createEvent, updateEvent } from '@/app/actions/events';
+import SportIcon from '@/components/SportIcon';
 import type { SportEvent, SportType } from '@/types';
 
-const SPORTS: { value: SportType; label: string; emoji: string }[] = [
-  { value: 'cricket',      label: 'Cricket',      emoji: '🏏' },
-  { value: 'football',     label: 'Football',     emoji: '⚽' },
-  { value: 'badminton',    label: 'Badminton',    emoji: '🏸' },
-  { value: 'table_tennis', label: 'Table Tennis', emoji: '🏓' },
+const SPORTS: { value: SportType; label: string }[] = [
+  { value: 'cricket',      label: 'Cricket' },
+  { value: 'football',     label: 'Football' },
+  { value: 'badminton',    label: 'Badminton' },
+  { value: 'table_tennis', label: 'Table Tennis' },
+  { value: 'foosball',     label: 'Foosball' },
 ];
 
 function defaultStartLocal(): string {
@@ -132,7 +134,7 @@ export default function NewEventForm({ existing }: { existing?: SportEvent } = {
                   : 'border-gray-800 bg-gray-900 text-gray-300 hover:bg-gray-800'
               } ${isEdit && sport !== s.value ? 'opacity-30' : ''} ${isEdit ? 'cursor-not-allowed' : ''}`}
             >
-              <span className="text-xl">{s.emoji}</span>
+              <SportIcon sport={s.value} className="text-xl" />
               {s.label}
             </button>
           ))}

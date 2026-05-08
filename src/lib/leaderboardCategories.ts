@@ -123,6 +123,8 @@ export function categoriesForSport(sport: string): LeaderboardCategory[] {
   switch (sport) {
     case 'cricket':  return [CRICKET_BATTING, CRICKET_BOWLING, CRICKET_FIELDING];
     case 'football': return [FOOTBALL_GOALS, FOOTBALL_WINS];
+    // Set-based sports (badminton / table_tennis / foosball) fall through to
+    // the single-metric "Most Wins" card layout — no per-discipline split.
     default:         return [];
   }
 }

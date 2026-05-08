@@ -3,12 +3,16 @@
 import { useState, type ReactNode } from 'react';
 import { ChevronDown } from 'lucide-react';
 import CaliberBar from './CaliberBar';
+import SportIcon from './SportIcon';
 import {
   calcCaliber, getCaliberColor, type SportKey, type SportStat,
 } from '@/lib/caliber';
 
 export interface SportBarRow {
   key: SportKey;
+  /** Plain-text emoji — kept for any caller that still wants to render
+   *  inline emoji. The component itself uses <SportIcon> so foosball
+   *  shows the proper coloured SVG instead of the goal-net stand-in. */
   emoji: string;
   label: string;
   /** Right-aligned 1-line summary, e.g. "138 runs · avg 34.5 · 3 wkts". */
@@ -54,8 +58,9 @@ export default function SportBarsList({
 
         const headerInner = (
           <>
-            <span className={`text-xs font-semibold ${hasMatches ? 'text-white' : 'text-gray-700'}`}>
-              {row.emoji} {row.label}
+            <span className={`text-xs font-semibold inline-flex items-center gap-1 ${hasMatches ? 'text-white' : 'text-gray-700'}`}>
+              <SportIcon sport={row.key} className="text-base" />
+              {row.label}
             </span>
             <div className="flex items-center gap-1.5">
               {!compact && hasMatches && (

@@ -3,17 +3,14 @@ import { CalendarDays, MapPin, Plus, Users, Flame } from 'lucide-react';
 import { listEvents, type EventListRow, type ListEventsOpts } from '@/lib/eventsServer';
 import { createClient } from '@/lib/supabase/server';
 import { formatEventDateTime } from '@/lib/formatDateTime';
+import SportIcon from '@/components/SportIcon';
 import type { SportType } from '@/types';
 
-const SPORT_EMOJI: Record<SportType, string> = {
-  cricket: '🏏', football: '⚽', badminton: '🏸', table_tennis: '🏓',
-};
-
 const SPORT_LABEL: Record<SportType, string> = {
-  cricket: 'Cricket', football: 'Football', badminton: 'Badminton', table_tennis: 'TT',
+  cricket: 'Cricket', football: 'Football', badminton: 'Badminton', table_tennis: 'TT', foosball: 'Foosball',
 };
 
-const SPORTS: SportType[] = ['cricket', 'football', 'badminton', 'table_tennis'];
+const SPORTS: SportType[] = ['cricket', 'football', 'badminton', 'table_tennis', 'foosball'];
 
 
 type SearchParams = {
@@ -122,7 +119,7 @@ export default async function EventsPage({
               sport === s ? 'bg-gray-700 border-gray-600 text-white' : 'border-gray-700 text-gray-400 hover:border-gray-600'
             }`}
           >
-            {SPORT_EMOJI[s]} {SPORT_LABEL[s]}
+            <SportIcon sport={s} className="mr-1" /> {SPORT_LABEL[s]}
           </Link>
         ))}
       </div>
@@ -180,7 +177,7 @@ function EventRow({ event: e }: { event: EventListRow }) {
         }`}
       >
         <div className="flex items-start gap-3">
-          <span className="text-2xl shrink-0">{SPORT_EMOJI[e.sport] ?? '🎯'}</span>
+          <SportIcon sport={e.sport} className="text-2xl shrink-0" />
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2 flex-wrap">
               <h3 className="text-sm font-semibold text-white truncate">{e.name}</h3>

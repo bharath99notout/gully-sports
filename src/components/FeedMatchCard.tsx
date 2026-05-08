@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { SportType, MatchStatus } from '@/types';
 import ConfirmationBadge from '@/components/ConfirmationBadge';
+import SportIcon from '@/components/SportIcon';
 
 interface PlayerPerf {
   player_id: string;
@@ -40,12 +41,12 @@ interface FeedMatch {
   player_performances: PlayerPerf[];
 }
 
-const sportEmoji: Record<SportType, string> = { cricket: '🏏', football: '⚽', badminton: '🏸', table_tennis: '🏓' };
 const sportColor: Record<SportType, string> = {
   cricket:      'text-blue-400 bg-blue-950/60 border-blue-900',
   football:     'text-green-400 bg-green-950/60 border-green-900',
   badminton:    'text-yellow-400 bg-yellow-950/60 border-yellow-900',
   table_tennis: 'text-orange-400 bg-orange-950/60 border-orange-900',
+  foosball:     'text-purple-400 bg-purple-950/60 border-purple-900',
 };
 
 function teamLabel(name: string): string {
@@ -105,6 +106,10 @@ function TeamRow({ name, score, sport, isWinner, dim }: {
         )}
         {(sport === 'badminton' || sport === 'table_tennis') && (
           <span className="text-sm font-bold tabular-nums">{(score?.sets as number[] | null)?.join(' · ') ?? '–'}</span>
+        )}
+        {/* Foosball — show games-won tally (stored in `goals`). */}
+        {sport === 'foosball' && (
+          <span className="text-xl font-black tabular-nums">{score?.goals ?? 0}</span>
         )}
       </div>
     </div>
@@ -175,12 +180,11 @@ export default function FeedMatchCard({ match }: { match: FeedMatch }) {
 
         {/* Header bar */}
         <div className="flex items-center justify-between px-4 py-2 border-b border-gray-800 bg-gray-800/30">
-          <span className={`text-[11px] px-2 py-0.5 rounded-full border font-semibold ${sportColor[match.sport]}`}>
-            {sportEmoji[match.sport]} {
-              match.sport === 'table_tennis'
-                ? 'Table Tennis'
-                : match.sport.charAt(0).toUpperCase() + match.sport.slice(1)
-            }
+          <span className={`text-[11px] px-2 py-0.5 rounded-full border font-semibold inline-flex items-center gap-1 ${sportColor[match.sport]}`}>
+            <SportIcon sport={match.sport} />
+            {match.sport === 'table_tennis'
+              ? 'Table Tennis'
+              : match.sport.charAt(0).toUpperCase() + match.sport.slice(1)}
           </span>
           <div className="flex items-center gap-2">
             {match.status === 'live' && (

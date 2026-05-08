@@ -90,6 +90,7 @@ function entryFromAgg(a: AggRow): LeaderboardEntry {
     wins: a.stat.wins,
     runs: a.stat.runs,
     wickets: a.stat.wickets,
+    catches: a.stat.catches,
     goals: a.stat.goals,
   };
 }
@@ -140,10 +141,13 @@ export async function buildEventLeaderboard(
     m.set(row.team_name, (m.get(row.team_name) ?? 0) + 1);
   }
 
-  // 4. Set scores for badminton / TT bonuses.
-  const isSetSport = sport === 'badminton' || sport === 'table_tennis';
+  // 4. Set scores for badminton / TT bonuses. Foosball gets the
+  //    singles/doubles split heuristic but skips the set-bonus query
+  //    since it doesn't track set scoring.
+  const isSetSport = sport === 'badminton' || sport === 'table_tennis' || sport === 'foosball';
+  const tracksSets = sport === 'badminton' || sport === 'table_tennis';
   const setsByMatchTeam = new Map<string, number[]>();
-  if (isSetSport) {
+  if (tracksSets) {
     const { data: ms } = await supabase
       .from('match_scores')
       .select('match_id, team_name, sets')
@@ -187,10 +191,10 @@ export async function buildEventLeaderboard(
         : r.matches.winner_team_id && r.matches.winner_team_id === r.matches.team_b_id ? r.matches.team_b_name : null);
     const won = !!(winnerName && playerTeam && winnerName === playerTeam);
 
-    // Set-sport bonuses.
+    // Set-sport bonuses. Skipped for foosball (doesn't track sets).
     let setsWon = 0;
     let cleanSweeps = 0;
-    if (isSetSport && playerTeam) {
+    if (tracksSets && playerTeam) {
       const opponent = playerTeam === r.matches.team_a_name ? r.matches.team_b_name : r.matches.team_a_name;
       const my = setsByMatchTeam.get(`${r.match_id}__${playerTeam}`) ?? [];
       const opp = setsByMatchTeam.get(`${r.match_id}__${opponent}`) ?? [];

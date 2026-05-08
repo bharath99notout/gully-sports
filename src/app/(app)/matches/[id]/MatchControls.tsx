@@ -27,6 +27,13 @@ export default function MatchControls({ match }: { match: Match }) {
     setLoading(false);
   }
 
+  // Foosball has its own end-match flow inside FoosballScorer — surfacing
+  // a redundant "Declare winner" header here just confused hosts (both
+  // sides showed "WON" before any pick). Hide the live-state declare UI
+  // for foosball; keep it as a safety net for cricket / football where
+  // the in-scorer end-match path is more buried.
+  const showDeclareWinner = match.status === 'live' && match.sport !== 'foosball';
+
   return (
     <div className="flex flex-col items-end gap-2">
       {match.status === 'upcoming' && (
@@ -34,7 +41,7 @@ export default function MatchControls({ match }: { match: Match }) {
           Start Match
         </Button>
       )}
-      {match.status === 'live' && (
+      {showDeclareWinner && (
         <div className="flex flex-col gap-1 items-end">
           <p className="text-xs text-gray-500">Declare winner:</p>
           <div className="flex gap-1">

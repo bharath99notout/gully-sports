@@ -22,7 +22,7 @@ interface Props {
 }
 
 const SPORT_LABEL: Record<string, string> = {
-  cricket: 'Cricket', football: 'Football', badminton: 'Badminton', table_tennis: 'Table Tennis',
+  cricket: 'Cricket', football: 'Football', badminton: 'Badminton', table_tennis: 'Table Tennis', foosball: 'Foosball',
 };
 
 /**

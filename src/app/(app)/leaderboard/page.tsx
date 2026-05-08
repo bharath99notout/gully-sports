@@ -46,8 +46,9 @@ export default async function LeaderboardPage() {
 
   // Map: `${match_id}__${player_id}` → team_name (to attribute wins)
   const playerTeamMap = new Map<string, string>();
-  /** Badminton: exactly 1 player per side → singles; any side with 2+ → doubles */
-  const badmintonFormatByMatch = new Map<string, 'singles' | 'doubles'>();
+  /** Set sports (badminton, table_tennis): exactly 1 player per side per
+   *  match → singles; anything else → doubles. */
+  const setSportFormatByMatch = new Map<string, 'singles' | 'doubles'>();
   if (matchIds.length > 0) {
     const { data: mp } = await supabase
       .from('match_players')
@@ -56,19 +57,21 @@ export default async function LeaderboardPage() {
     for (const row of mp ?? []) {
       playerTeamMap.set(`${row.match_id}__${row.player_id}`, row.team_name);
     }
-    const badmintonMatchIds = new Set(raw.filter(r => r.sport === 'badminton').map(r => r.match_id));
+    const setSportMatchIds = new Set(
+      raw.filter(r => r.sport === 'badminton' || r.sport === 'table_tennis' || r.sport === 'foosball').map(r => r.match_id),
+    );
     const playersPerTeam = new Map<string, Map<string, number>>(); // match_id → team_name → count
     for (const row of mp ?? []) {
-      if (!badmintonMatchIds.has(row.match_id)) continue;
+      if (!setSportMatchIds.has(row.match_id)) continue;
       if (!playersPerTeam.has(row.match_id)) playersPerTeam.set(row.match_id, new Map());
       const tm = playersPerTeam.get(row.match_id)!;
       tm.set(row.team_name, (tm.get(row.team_name) ?? 0) + 1);
     }
-    for (const mid of badmintonMatchIds) {
+    for (const mid of setSportMatchIds) {
       const tm = playersPerTeam.get(mid);
       const counts = tm ? [...tm.values()].filter(c => c > 0).sort((a, b) => a - b) : [];
       const singles = counts.length >= 2 && counts.every(c => c === 1);
-      badmintonFormatByMatch.set(mid, singles ? 'singles' : 'doubles');
+      setSportFormatByMatch.set(mid, singles ? 'singles' : 'doubles');
     }
   }
 
@@ -102,9 +105,13 @@ export default async function LeaderboardPage() {
 
   // Combined per (player, sport) — one badminton bucket per player for the "All" tab
   const agg = new Map<string, AggRow>();
-  // Badminton only: separate career stats for singles vs doubles matches
+  // Set sports: separate career stats for singles vs doubles matches.
   const aggBadmintonSingles = new Map<string, AggRow>();
   const aggBadmintonDoubles = new Map<string, AggRow>();
+  const aggTableTennisSingles = new Map<string, AggRow>();
+  const aggTableTennisDoubles = new Map<string, AggRow>();
+  const aggFoosballSingles = new Map<string, AggRow>();
+  const aggFoosballDoubles = new Map<string, AggRow>();
 
   function ensureAggRow(map: Map<string, AggRow>, key: string, r: RawStat): AggRow {
     if (!map.has(key)) {
@@ -125,9 +132,23 @@ export default async function LeaderboardPage() {
     const combinedKey = `${r.player_id}__${r.sport}`;
     const targets: { map: Map<string, AggRow>; key: string }[] = [{ map: agg, key: combinedKey }];
     if (r.sport === 'badminton') {
-      const fmt = badmintonFormatByMatch.get(r.match_id) ?? 'doubles';
+      const fmt = setSportFormatByMatch.get(r.match_id) ?? 'doubles';
       targets.push({
         map: fmt === 'singles' ? aggBadmintonSingles : aggBadmintonDoubles,
+        key: r.player_id,
+      });
+    }
+    if (r.sport === 'table_tennis') {
+      const fmt = setSportFormatByMatch.get(r.match_id) ?? 'doubles';
+      targets.push({
+        map: fmt === 'singles' ? aggTableTennisSingles : aggTableTennisDoubles,
+        key: r.player_id,
+      });
+    }
+    if (r.sport === 'foosball') {
+      const fmt = setSportFormatByMatch.get(r.match_id) ?? 'doubles';
+      targets.push({
+        map: fmt === 'singles' ? aggFoosballSingles : aggFoosballDoubles,
         key: r.player_id,
       });
     }
@@ -180,7 +201,10 @@ export default async function LeaderboardPage() {
   const football: LeaderboardEntry[] = [];
   const badmintonSingles: LeaderboardEntry[] = [];
   const badmintonDoubles: LeaderboardEntry[] = [];
-  const table_tennis: LeaderboardEntry[] = [];
+  const tableTennisSingles: LeaderboardEntry[] = [];
+  const tableTennisDoubles: LeaderboardEntry[] = [];
+  const foosballSingles: LeaderboardEntry[] = [];
+  const foosballDoubles: LeaderboardEntry[] = [];
 
   // Aggregate per player across sports for the "All" leaderboard
   const allByPlayer = new Map<string, {
@@ -198,7 +222,9 @@ export default async function LeaderboardPage() {
   function pushEntry(a: AggRow, entry: LeaderboardEntry) {
     if (a.sport === 'cricket')       cricket.push(entry);
     if (a.sport === 'football')      football.push(entry);
-    if (a.sport === 'table_tennis')  table_tennis.push(entry);
+    // badminton + table_tennis are surfaced via their singles/doubles
+    // splits below — the combined "All" tab uses the aggregated entry
+    // but we don't push to a separate sport tab.
   }
 
   for (const a of agg.values()) {
@@ -214,9 +240,11 @@ export default async function LeaderboardPage() {
       wins: a.stat.wins,
       runs: a.stat.runs,
       wickets: a.stat.wickets,
+      catches: a.stat.catches,
       goals: a.stat.goals,
     };
-    if (a.sport !== 'badminton') pushEntry(a, entry);
+    // Set sports get their entries from the singles/doubles aggregates.
+    if (a.sport !== 'badminton' && a.sport !== 'table_tennis') pushEntry(a, entry);
 
     // Roll into "All" aggregate
     if (!allByPlayer.has(a.player_id)) {
@@ -234,38 +262,28 @@ export default async function LeaderboardPage() {
     p.activeSports.add(a.sport);
   }
 
-  for (const a of aggBadmintonSingles.values()) {
-    const score  = calcCaliber(a.sport, a.stat);
-    const points = calcSportPoints(a.sport, a.perMatch);
-    badmintonSingles.push({
+  function setSportEntry(a: AggRow): LeaderboardEntry {
+    return {
       player_id: a.player_id,
       name: a.name,
       avatar_url: a.avatar_url,
-      score,
-      points,
+      score: calcCaliber(a.sport, a.stat),
+      points: calcSportPoints(a.sport, a.perMatch),
       matches: a.stat.matches,
       wins: a.stat.wins,
       runs: a.stat.runs,
       wickets: a.stat.wickets,
+      catches: a.stat.catches,
       goals: a.stat.goals,
-    });
+    };
   }
-  for (const a of aggBadmintonDoubles.values()) {
-    const score  = calcCaliber(a.sport, a.stat);
-    const points = calcSportPoints(a.sport, a.perMatch);
-    badmintonDoubles.push({
-      player_id: a.player_id,
-      name: a.name,
-      avatar_url: a.avatar_url,
-      score,
-      points,
-      matches: a.stat.matches,
-      wins: a.stat.wins,
-      runs: a.stat.runs,
-      wickets: a.stat.wickets,
-      goals: a.stat.goals,
-    });
-  }
+
+  for (const a of aggBadmintonSingles.values())   badmintonSingles.push(setSportEntry(a));
+  for (const a of aggBadmintonDoubles.values())   badmintonDoubles.push(setSportEntry(a));
+  for (const a of aggTableTennisSingles.values()) tableTennisSingles.push(setSportEntry(a));
+  for (const a of aggTableTennisDoubles.values()) tableTennisDoubles.push(setSportEntry(a));
+  for (const a of aggFoosballSingles.values())    foosballSingles.push(setSportEntry(a));
+  for (const a of aggFoosballDoubles.values())    foosballDoubles.push(setSportEntry(a));
 
   const all: LeaderboardEntry[] = Array.from(allByPlayer.values()).map(p => ({
     player_id: p.player_id,
@@ -275,7 +293,7 @@ export default async function LeaderboardPage() {
     points:  p.totalPoints,
     matches: p.matches,
     wins:    p.wins,
-    runs: 0, wickets: 0, goals: 0,
+    runs: 0, wickets: 0, catches: 0, goals: 0,
     sports_played: p.activeSports.size,
   }));
 
@@ -288,7 +306,10 @@ export default async function LeaderboardPage() {
         football={football}
         badmintonSingles={badmintonSingles}
         badmintonDoubles={badmintonDoubles}
-        table_tennis={table_tennis}
+        tableTennisSingles={tableTennisSingles}
+        tableTennisDoubles={tableTennisDoubles}
+        foosballSingles={foosballSingles}
+        foosballDoubles={foosballDoubles}
         all={all}
       />
     </div>
