@@ -4,7 +4,7 @@ export default function manifest(): MetadataRoute.Manifest {
   return {
     name: 'GullySports – Local Match Scorer',
     short_name: 'GullySports',
-    description: 'Score and track gully cricket, football & badminton matches. Build your player caliber.',
+    description: 'Score and track gully cricket, football, badminton, table tennis & foosball matches. Build your player caliber.',
     start_url: '/dashboard',
     scope: '/',
     display: 'standalone',
@@ -12,10 +12,15 @@ export default function manifest(): MetadataRoute.Manifest {
     theme_color: '#10b981',
     background_color: '#030712',
     categories: ['sports', 'lifestyle', 'social'],
+    // PNG icons at 192 and 512 are required for Android Play Store / TWA via
+    // Bubblewrap. Maskable variants survive adaptive-icon shape masking.
     icons: [
-      { src: '/icon.svg',    sizes: 'any',     type: 'image/svg+xml', purpose: 'any' },
-      { src: '/apple-icon',  sizes: '180x180', type: 'image/png',     purpose: 'any' },
-      { src: '/apple-icon',  sizes: '180x180', type: 'image/png',     purpose: 'maskable' },
+      { src: '/icon.svg',         sizes: 'any',     type: 'image/svg+xml', purpose: 'any' },
+      { src: '/icon-192',         sizes: '192x192', type: 'image/png',     purpose: 'any' },
+      { src: '/icon-512',         sizes: '512x512', type: 'image/png',     purpose: 'any' },
+      { src: '/icon-192-mask',    sizes: '192x192', type: 'image/png',     purpose: 'maskable' },
+      { src: '/icon-512-mask',    sizes: '512x512', type: 'image/png',     purpose: 'maskable' },
+      { src: '/apple-icon',       sizes: '180x180', type: 'image/png',     purpose: 'any' },
     ],
     shortcuts: [
       { name: 'New Match',   short_name: 'New', description: 'Start scoring a new match', url: '/matches/new' },

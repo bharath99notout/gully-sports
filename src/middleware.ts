@@ -35,9 +35,28 @@ export async function middleware(request: NextRequest) {
 
   const { data: { user } } = await supabase.auth.getUser();
 
-  const isAuthPage = request.nextUrl.pathname.startsWith('/auth');
-  const isPublicPage = request.nextUrl.pathname === '/'
-    || request.nextUrl.pathname.startsWith('/p/'); // /p/[id] → public player profile
+  const { pathname } = request.nextUrl;
+  const isAuthPage = pathname.startsWith('/auth');
+  // Public assets that must be reachable without auth — required by:
+  //   - browsers / Android (PWA install)
+  //   - Bubblewrap / TWA build (manifest fetch)
+  //   - Google Digital Asset Links verifier (.well-known/assetlinks.json)
+  // Returning HTML from these routes (the /auth/login redirect) breaks the
+  // TWA build with "Unexpected token '<' is not valid JSON".
+  const isPwaAsset =
+    pathname === '/manifest.webmanifest' ||
+    pathname === '/manifest.json' ||
+    pathname === '/sw.js' ||
+    pathname === '/robots.txt' ||
+    pathname === '/sitemap.xml' ||
+    pathname.startsWith('/.well-known/') ||
+    pathname.startsWith('/icon-') ||
+    pathname === '/apple-icon' ||
+    pathname === '/opengraph-image' ||
+    pathname === '/twitter-image';
+  const isPublicPage = pathname === '/'
+    || pathname.startsWith('/p/') // /p/[id] → public player profile
+    || isPwaAsset;
 
   if (!user && !isAuthPage && !isPublicPage) {
     return NextResponse.redirect(new URL('/auth/login', request.url));
