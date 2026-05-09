@@ -3,6 +3,7 @@ import { Geist } from 'next/font/google';
 import './globals.css';
 import PWARegister from '@/components/PWARegister';
 import { Analytics } from '@vercel/analytics/next';
+import { SpeedInsights } from '@vercel/speed-insights/next';
 
 const geist = Geist({ subsets: ['latin'], variable: '--font-geist' });
 
@@ -70,6 +71,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         {children}
         <PWARegister />
         <Analytics />
+        <SpeedInsights />
       </body>
     </html>
   );
