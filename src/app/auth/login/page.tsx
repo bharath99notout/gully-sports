@@ -35,12 +35,21 @@ function LoginForm() {
   const [emailFull, setEmailFull] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  // True when the pre-OTP check told us this number belongs to a soft-
+  // deleted account. After OTP verifies we call /api/auth/restore-account
+  // and send the user to the signup name screen to pick a fresh display
+  // name.
+  const [accountDeleted, setAccountDeleted] = useState(false);
+  const [deletedNotice, setDeletedNotice] = useState('');
   const otpFormRef = useRef<HTMLFormElement>(null);
   const prevOtpLenRef = useRef(0);
 
   useEffect(() => {
     const p = searchParams.get('phone');
     if (p && /^\d{10}$/.test(p)) setPhone(p);
+    if (searchParams.get('deleted') === '1') {
+      setDeletedNotice('Your account was deleted. Sign in again with the same number to restore it.');
+    }
   }, [searchParams]);
 
   async function handlePhone(e: React.FormEvent) {
@@ -59,10 +68,22 @@ function LoginForm() {
         exists?: boolean;
         email_otp_enabled?: boolean;
         email_hint?: string;
+        account_deleted?: boolean;
       };
 
       if (!body.exists) {
         setError('No account with this number yet. Create one first.');
+        setLoading(false);
+        return;
+      }
+
+      // Soft-deleted accounts always go through last-4 OTP (we don't email
+      // them an OTP for a deleted address) and trigger a restore on success.
+      setAccountDeleted(Boolean(body.account_deleted));
+      if (body.account_deleted) {
+        setStep('otp_phone');
+        setOtp('');
+        prevOtpLenRef.current = 0;
         setLoading(false);
         return;
       }
@@ -156,6 +177,21 @@ function LoginForm() {
     if (user?.id) {
       await supabase.from('profiles').update({ phone: phone10 }).eq('id', user.id);
     }
+
+    if (accountDeleted) {
+      // Restore clears deleted_at and resets the name back to a placeholder
+      // so the signup name screen prompts the user for a fresh display name.
+      const restoreRes = await fetch('/api/auth/restore-account', { method: 'POST' });
+      if (!restoreRes.ok) {
+        const j = (await restoreRes.json().catch(() => ({}))) as { error?: string };
+        setError(j.error || 'Could not restore account');
+        setLoading(false);
+        return;
+      }
+      window.location.href = '/auth/signup?from=login&restored=1';
+      return;
+    }
+
     window.location.href = await getDestination(supabase);
   }
 
@@ -198,6 +234,11 @@ function LoginForm() {
               <p className="text-sm text-gray-500 mb-5">
                 Enter your mobile number to continue
               </p>
+              {deletedNotice && (
+                <div className="bg-amber-500/10 border border-amber-500/30 text-amber-200 text-xs rounded-lg p-3 mb-4 leading-relaxed">
+                  {deletedNotice}
+                </div>
+              )}
               <form onSubmit={handlePhone} className="flex flex-col gap-4">
                 <div>
                   <label className="text-xs text-gray-400 font-medium mb-1.5 block">Mobile Number</label>
@@ -231,7 +272,14 @@ function LoginForm() {
                 className="text-xs text-gray-500 hover:text-gray-300 mb-4 transition-colors">
                 ← +91 {phone}
               </button>
-              <h2 className="text-lg font-semibold text-white mb-1">Enter OTP</h2>
+              <h2 className="text-lg font-semibold text-white mb-1">
+                {accountDeleted ? 'Welcome back!' : 'Enter OTP'}
+              </h2>
+              {accountDeleted && (
+                <p className="text-xs text-emerald-300 mb-3 leading-relaxed">
+                  Your old account is here. Verify the OTP to restore your matches and stats.
+                </p>
+              )}
               <p className="text-sm text-emerald-400 mb-1 font-medium">
                 Your OTP is the last 4 digits of your mobile number.
               </p>

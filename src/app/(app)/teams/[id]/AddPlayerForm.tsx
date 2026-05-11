@@ -96,6 +96,7 @@ export default function AddPlayerForm({
     <PlayerSearchAndAdd
       onAdd={addToTeam}
       excludePlayerIds={existingPlayerIds}
+      sameSidePlayerIds={existingPlayerIds}
       heading="Add player"
       hint="Search by name or 10-digit phone. Create new if not found — phone numbers are never duplicated. New player is auto-added to active tournaments this team is in."
       onSuccess={() => router.refresh()}

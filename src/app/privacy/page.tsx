@@ -65,23 +65,6 @@ export default function PrivacyPage() {
         </p>
       </Section>
 
-      <Section title="Who we share data with">
-        <ul className="list-disc pl-6 space-y-2">
-          <li>
-            <strong>Supabase</strong> (database, authentication, file storage):
-            stores your account and match data on our behalf.{' '}
-            <a href="https://supabase.com/privacy" target="_blank" rel="noreferrer"
-              className="text-emerald-400 hover:underline">Supabase privacy policy</a>.
-          </li>
-          <li>
-            <strong>Vercel</strong> (hosting): serves the app and logs requests.{' '}
-            <a href="https://vercel.com/legal/privacy-policy" target="_blank" rel="noreferrer"
-              className="text-emerald-400 hover:underline">Vercel privacy policy</a>.
-          </li>
-        </ul>
-        <p className="mt-3">We do not share your data with anyone else.</p>
-      </Section>
-
       <Section title="Public vs. private data">
         <p>
           By design, GullySports is a social sports app. The following are{' '}
@@ -113,14 +96,6 @@ export default function PrivacyPage() {
             your name) so that other players&apos; histories remain consistent.
           </li>
         </ul>
-      </Section>
-
-      <Section title="Children">
-        <p>
-          GullySports is intended for users aged 13 and older. We do not
-          knowingly collect data from children under 13. If you believe a child
-          has signed up, contact us and we&apos;ll remove the account.
-        </p>
       </Section>
 
       <Section title="Security">

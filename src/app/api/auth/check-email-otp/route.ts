@@ -37,9 +37,22 @@ export async function POST(req: Request) {
 
   const { data: profile } = await admin
     .from('profiles')
-    .select('email_otp_enabled')
+    .select('email_otp_enabled, deleted_at')
     .eq('id', userId)
     .maybeSingle();
+
+  // If the account is soft-deleted, the login UI shows a "welcome back, your
+  // data will be restored" prompt before sending the OTP. Email-OTP is
+  // forced off for restore so we use the simple last-4 path -- the deleted
+  // user's email_otp_enabled was cleared on delete anyway.
+  const accountDeleted = Boolean((profile as { deleted_at?: string } | null)?.deleted_at);
+  if (accountDeleted) {
+    return NextResponse.json({
+      exists: true,
+      email_otp_enabled: false,
+      account_deleted: true,
+    });
+  }
 
   if (!profile?.email_otp_enabled) {
     return NextResponse.json({ exists: true, email_otp_enabled: false });

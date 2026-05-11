@@ -23,6 +23,7 @@ type Step =
 function SignupForm() {
   const searchParams = useSearchParams();
   const fromLogin = searchParams.get('from') === 'login';
+  const restored = searchParams.get('restored') === '1';
 
   const [step, setStep] = useState<Step>('loading');
   const [phone, setPhone] = useState('');
@@ -69,8 +70,18 @@ function SignupForm() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ phone: phone10 }),
       });
-      const body = (await res.json().catch(() => ({}))) as { exists?: boolean; error?: string };
+      const body = (await res.json().catch(() => ({}))) as {
+        exists?: boolean;
+        account_deleted?: boolean;
+        error?: string;
+      };
       if (body.exists) {
+        // For a soft-deleted account on this number, jump straight to login
+        // with a notice; the login page handles restore on OTP success.
+        if (body.account_deleted) {
+          window.location.href = `/auth/login?phone=${encodeURIComponent(phone10)}&deleted=1`;
+          return;
+        }
         setPhoneTaken(true);
         setLoading(false);
         return;
@@ -377,12 +388,14 @@ function SignupForm() {
           {step === 'name' && (
             <>
               <h2 className="text-lg font-semibold text-white mb-1">
-                {fromLogin ? 'Finish your profile' : "What's your name?"}
+                {restored ? 'Welcome back!' : (fromLogin ? 'Finish your profile' : "What's your name?")}
               </h2>
               <p className="text-sm text-gray-500 mb-5">
-                {fromLogin
-                  ? "You're signed in. Add a display name to continue."
-                  : 'Shows on your player profile. Email is optional.'}
+                {restored
+                  ? "Your account and matches are back. Pick a display name to continue."
+                  : (fromLogin
+                      ? "You're signed in. Add a display name to continue."
+                      : 'Shows on your player profile. Email is optional.')}
               </p>
               <form onSubmit={handleName} className="flex flex-col gap-4">
                 <div>

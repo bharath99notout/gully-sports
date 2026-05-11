@@ -7,9 +7,10 @@ import Button from '@/components/ui/Button';
 import Input from '@/components/ui/Input';
 import Card from '@/components/ui/Card';
 import { SportType, Team } from '@/types';
-import { UserPlus, X, Search } from 'lucide-react';
+import { X } from 'lucide-react';
 import { recomputeEventCost } from '@/app/actions/events';
 import SportIcon from '@/components/SportIcon';
+import PlayerSearchAndAdd, { type PlayerAddResult } from '@/components/PlayerSearchAndAdd';
 
 const sports: { value: SportType; label: string }[] = [
   { value: 'cricket',      label: 'Cricket' },
@@ -315,8 +316,8 @@ function NewMatchForm() {
               </div>
 
               <div className="grid grid-cols-2 gap-3">
-                <SidePicker label="Side A" players={sideAPlayers} setPlayers={setSideAPlayers} />
-                <SidePicker label="Side B" players={sideBPlayers} setPlayers={setSideBPlayers} />
+                <SidePicker label="Side A" players={sideAPlayers} setPlayers={setSideAPlayers} otherPlayers={sideBPlayers} />
+                <SidePicker label="Side B" players={sideBPlayers} setPlayers={setSideBPlayers} otherPlayers={sideAPlayers} />
               </div>
             </div>
           )}
@@ -362,8 +363,8 @@ function NewMatchForm() {
 
               {/* Player pickers */}
               <div className="grid grid-cols-2 gap-3">
-                <SidePicker label="Side A" players={sideAPlayers} setPlayers={setSideAPlayers} />
-                <SidePicker label="Side B" players={sideBPlayers} setPlayers={setSideBPlayers} />
+                <SidePicker label="Side A" players={sideAPlayers} setPlayers={setSideAPlayers} otherPlayers={sideBPlayers} />
+                <SidePicker label="Side B" players={sideBPlayers} setPlayers={setSideBPlayers} otherPlayers={sideAPlayers} />
               </div>
             </div>
           )}
@@ -377,8 +378,8 @@ function NewMatchForm() {
                 Add up to 2 players per side — 2 makes it doubles. Host declares the winner after the match.
               </p>
               <div className="grid grid-cols-2 gap-3">
-                <SidePicker label="Side A" players={sideAPlayers} setPlayers={setSideAPlayers} />
-                <SidePicker label="Side B" players={sideBPlayers} setPlayers={setSideBPlayers} />
+                <SidePicker label="Side A" players={sideAPlayers} setPlayers={setSideAPlayers} otherPlayers={sideBPlayers} />
+                <SidePicker label="Side B" players={sideBPlayers} setPlayers={setSideBPlayers} otherPlayers={sideAPlayers} />
               </div>
             </div>
           )}
@@ -438,65 +439,36 @@ function NewMatchForm() {
   );
 }
 
-// ── Side picker (search + add + create new) ──────────────────────────────────
-
-function SidePicker({ label, players, setPlayers }: {
+// ── Side picker — wraps shared PlayerSearchAndAdd ───────────────────────────
+//
+// Single-source-of-truth rule (see CLAUDE.md "Reuse rule"): the search +
+// dedup + create-new-placeholder behaviour lives in PlayerSearchAndAdd. This
+// thin wrapper just renders the chip list, "+ Add player" toggle, and the
+// max-2-per-side / no-same-player-on-both-sides constraints via
+// excludePlayerIds.
+function SidePicker({ label, players, setPlayers, otherPlayers }: {
   label: string;
   players: PickedPlayer[];
   setPlayers: React.Dispatch<React.SetStateAction<PickedPlayer[]>>;
+  otherPlayers: PickedPlayer[];
 }) {
   const [open, setOpen] = useState(false);
-  const [q, setQ] = useState('');
-  const [results, setResults] = useState<{ id: string; name: string; phone?: string | null }[]>([]);
-  const [creating, setCreating] = useState(false);
-  const [newName, setNewName] = useState('');
-  const [newPhone, setNewPhone] = useState('');
-  const [busy, setBusy] = useState(false);
 
-  async function search(val: string) {
-    setQ(val);
-    if (val.length < 2) { setResults([]); return; }
-    const supabase = createClient();
-    const [{ data: byName }, { data: byPhone }] = await Promise.all([
-      supabase.from('profiles').select('id, name, phone').ilike('name', `%${val}%`).limit(6),
-      supabase.from('profiles').select('id, name, phone').ilike('phone', `%${val}%`).limit(6),
-    ]);
-    const combined = [...(byName ?? []), ...(byPhone ?? [])];
-    const seen = new Set<string>();
-    setResults(combined.filter(p => !seen.has(p.id) && !!seen.add(p.id)).slice(0, 8));
-  }
-
-  function pick(p: { id: string; name: string }) {
-    if (players.some(x => x.id === p.id)) return; // already picked
-    if (players.length >= 2) return;               // max 2
-    setPlayers(prev => [...prev, { id: p.id, name: p.name }]);
-    setQ(''); setResults([]); setOpen(false);
-  }
-
-  async function createNew() {
-    const cleanName = newName.trim();
-    const cleanPhone = newPhone.replace(/\D/g, '').slice(-10);
-    if (!cleanName) { alert('Enter a name'); return; }
-    if (cleanPhone.length !== 10) { alert('Phone must be 10 digits'); return; }
-    setBusy(true);
-
-    try {
-      const res = await fetch('/api/auth/create-placeholder-player', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ phone: cleanPhone, name: cleanName }),
-      });
-      const body = (await res.json().catch(() => ({}))) as { id?: string; name?: string; error?: string };
-      if (!res.ok || !body.id) {
-        alert('Could not create player: ' + (body.error ?? `HTTP ${res.status}`));
-        return;
-      }
-      pick({ id: body.id, name: body.name || cleanName });
-    } finally {
-      setBusy(false);
-      setCreating(false); setNewName(''); setNewPhone('');
+  async function handleAdd(playerId: string, displayName: string): Promise<PlayerAddResult> {
+    if (players.some(p => p.id === playerId)) {
+      return { ok: false, error: `${displayName} is already on this side.` };
     }
+    if (otherPlayers.some(p => p.id === playerId)) {
+      return { ok: false, error: `${displayName} is already on the other side.` };
+    }
+    if (players.length >= 2) {
+      return { ok: false, error: 'A side can have at most 2 players.' };
+    }
+    setPlayers(prev => [...prev, { id: playerId, name: displayName }]);
+    return { ok: true };
   }
+
+  const excludeIds = [...players.map(p => p.id), ...otherPlayers.map(p => p.id)];
 
   return (
     <div>
@@ -516,65 +488,29 @@ function SidePicker({ label, players, setPlayers }: {
         ))}
       </div>
 
-      {/* Add button */}
       {players.length < 2 && !open && (
         <button type="button" onClick={() => setOpen(true)}
           className="w-full flex items-center justify-center gap-1.5 py-2 border border-dashed border-gray-700 rounded-lg text-xs text-gray-400 hover:text-emerald-400 hover:border-emerald-700 transition-colors">
-          <UserPlus size={12} />
-          {players.length === 0 ? 'Add player' : 'Add teammate (doubles)'}
+          {players.length === 0 ? '+ Add player' : '+ Add teammate (doubles)'}
         </button>
       )}
 
-      {/* Search / create panel */}
       {open && (
-        <div className="border border-gray-700 rounded-lg p-2 bg-gray-900/60 flex flex-col gap-2">
-          <div className="flex items-center gap-1.5">
-            <Search size={12} className="text-gray-500 shrink-0" />
-            <input autoFocus type="text" placeholder="Name or mobile…" value={q}
-              onChange={e => search(e.target.value)}
-              className="flex-1 bg-transparent text-sm text-white placeholder-gray-600 focus:outline-none" />
-            <button type="button" onClick={() => { setOpen(false); setQ(''); setResults([]); setCreating(false); }}
-              className="text-gray-500 hover:text-gray-300"><X size={12} /></button>
-          </div>
-
-          {results.length > 0 && (
-            <div className="flex flex-col divide-y divide-gray-800 border border-gray-800 rounded overflow-hidden">
-              {results.map(p => (
-                <button key={p.id} type="button" onClick={() => pick(p)}
-                  className="text-left px-2 py-1.5 bg-gray-800 hover:bg-gray-700 flex items-center justify-between">
-                  <span className="text-sm text-white">{p.name}</span>
-                  {p.phone && <span className="text-[10px] text-gray-500">{p.phone}</span>}
-                </button>
-              ))}
-            </div>
-          )}
-
-          {q.trim().length >= 2 && results.length === 0 && !creating && (
-            <button type="button" onClick={() => { setNewName(q.trim()); setNewPhone(''); setCreating(true); }}
-              className="w-full text-left px-2 py-1.5 bg-emerald-950/40 hover:bg-emerald-950/60 border border-emerald-800/60 rounded flex items-center gap-1.5">
-              <UserPlus size={12} className="text-emerald-400 shrink-0" />
-              <span className="text-xs text-emerald-300 font-semibold truncate">Add &ldquo;{q.trim()}&rdquo; as new player</span>
-            </button>
-          )}
-
-          {creating && (
-            <div className="flex flex-col gap-1.5 p-2 bg-gray-800/40 border border-emerald-800/60 rounded">
-              <input type="text" placeholder="Player name" value={newName}
-                onChange={e => setNewName(e.target.value)}
-                className="w-full bg-gray-900 border border-gray-700 rounded px-2 py-1 text-sm text-white" />
-              <input type="tel" inputMode="numeric" placeholder="10-digit mobile" value={newPhone}
-                onChange={e => setNewPhone(e.target.value.replace(/\D/g, '').slice(0, 10))}
-                className="w-full bg-gray-900 border border-gray-700 rounded px-2 py-1 text-sm text-white" />
-              <div className="flex gap-1">
-                <button type="button" onClick={() => { setCreating(false); setNewName(''); setNewPhone(''); }}
-                  className="flex-1 py-1 rounded bg-gray-800 border border-gray-700 text-[11px] text-gray-400">Cancel</button>
-                <button type="button" onClick={createNew} disabled={busy || !newName.trim() || newPhone.length !== 10}
-                  className="flex-1 py-1 rounded bg-emerald-600 hover:bg-emerald-500 text-[11px] font-bold text-white disabled:opacity-40">
-                  {busy ? '…' : 'Create'}
-                </button>
-              </div>
-            </div>
-          )}
+        <div className="border border-gray-700 rounded-lg p-2 bg-gray-900/60">
+          <PlayerSearchAndAdd
+            onAdd={handleAdd}
+            excludePlayerIds={excludeIds}
+            sameSidePlayerIds={players.map(p => p.id)}
+            placeholder="Name or 10-digit mobile…"
+            onSuccess={() => setOpen(false)}
+          />
+          <button
+            type="button"
+            onClick={() => setOpen(false)}
+            className="mt-2 text-[11px] text-gray-500 hover:text-gray-300"
+          >
+            Cancel
+          </button>
         </div>
       )}
     </div>

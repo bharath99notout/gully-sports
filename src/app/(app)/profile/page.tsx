@@ -6,6 +6,7 @@ import EditProfileForm from './EditProfileForm';
 import EmailOtpSection from './EmailOtpSection';
 import SignOutButton from './SignOutButton';
 import ProfileAvatar from './ProfileAvatar';
+import DeleteAccountButton from './DeleteAccountButton';
 
 /**
  * Account/settings page. Deliberately *not* a stats showcase — the dashboard
@@ -110,8 +111,11 @@ export default async function ProfilePage() {
       </section>
 
       {/* Danger / device controls */}
-      <div className="flex justify-center pt-2 pb-4">
-        <SignOutButton />
+      <div className="flex flex-col items-stretch gap-3 pt-2 pb-6">
+        <div className="flex justify-center">
+          <SignOutButton />
+        </div>
+        <DeleteAccountButton />
       </div>
     </div>
   );

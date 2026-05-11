@@ -7,6 +7,7 @@ import { reloadMatchClean } from '@/lib/matchNav';
 import Card from '@/components/ui/Card';
 import { Plus, X, ChevronDown, Trophy, Target } from 'lucide-react';
 import { Match, MatchScore, MatchPlayer, CricketPlayerStat } from '@/types';
+import PlayerSearchAndAdd, { type PlayerAddResult } from '@/components/PlayerSearchAndAdd';
 
 interface Props {
   match: Match;
@@ -99,17 +100,13 @@ export default function CricketScorer({
   const [winnerSide, setWinnerSide] = useState<'a' | 'b' | null>(null);
   const [allOutMsg, setAllOutMsg] = useState<string | null>(null);
 
+  // Match-day "+ Add player" → opens the shared PlayerSearchAndAdd against
+  // a chosen team. The full search/create-placeholder/dedup behaviour lives
+  // in that component (see CLAUDE.md "Reuse rule"); we just supply the
+  // onAdd callback that wires the picked player_id into match_players via
+  // the offline mutation queue.
   const [addTeam, setAddTeam] = useState<string | null>(null);
-  const [searchQ, setSearchQ] = useState('');
-  const [searchRes, setSearchRes] = useState<{ id: string; name: string; phone?: string | null }[]>([]);
   const [busy, setBusy] = useState(false);
-
-  // "Add new player" inline form
-  const [newPlayerOpen, setNewPlayerOpen] = useState(false);
-  const [newPlayerName, setNewPlayerName] = useState('');
-  const [newPlayerPhone, setNewPlayerPhone] = useState('');
-
-  // ── helpers ──────────────────────────────────────────────────────────────
 
   const battingScore = battingTeam === match.team_a_name ? scoreA : scoreB;
   const battingPlayers = players.filter(p => p.team_name === battingTeam);
@@ -377,54 +374,32 @@ export default function CricketScorer({
     reloadMatchClean();
   }
 
-  async function handleSearch(q: string) {
-    setSearchQ(q);
-    if (q.length < 2) { setSearchRes([]); return; }
-    // Two separate queries to avoid .or() ilike issues with % wildcards
-    const [{ data: byName }, { data: byPhone }] = await Promise.all([
-      supabase.from('profiles').select('id, name, phone').ilike('name', `%${q}%`).limit(6),
-      supabase.from('profiles').select('id, name, phone').ilike('phone', `%${q}%`).limit(6),
-    ]);
-    const combined = [...(byName ?? []), ...(byPhone ?? [])];
-    const seen = new Set<string>();
-    setSearchRes(combined.filter(p => !seen.has(p.id) && !!seen.add(p.id)).slice(0, 8));
-  }
+  /**
+   * Wired into PlayerSearchAndAdd's onAdd callback. The shared component
+   * has already resolved the player (search-pick or freshly-created
+   * placeholder via /api/auth/create-placeholder-player); we just attach
+   * them to the chosen team via the offline mutation queue.
+   */
+  async function addPlayerToTeam(playerId: string, displayName: string): Promise<PlayerAddResult> {
+    const team = addTeam;
+    if (!team) return { ok: false, error: 'No team selected' };
 
-  async function addPlayer(profile: { id: string; name: string; phone?: string | null }) {
-    const team = addTeam!;
+    if (players.some(p => p.player_id === playerId && p.team_name === team)) {
+      return { ok: false, error: `${displayName} is already on ${team}.` };
+    }
+
     const { error } = await offlineMutate(supabase, {
       kind: 'insert',
       table: 'match_players',
-      values: { match_id: match.id, player_id: profile.id, team_name: team },
+      values: { match_id: match.id, player_id: playerId, team_name: team },
     }, match.id);
-    if (!error) {
-      setPlayers(p => [...p, { id: crypto.randomUUID(), match_id: match.id, player_id: profile.id, team_name: team, name: profile.name }]);
-    }
-    setSearchQ(''); setSearchRes([]); setAddTeam(null);
-  }
+    if (error) return { ok: false, error: error.message };
 
-  async function createAndAddPlayer(name: string, phone: string) {
-    const cleanName = name.trim();
-    const cleanPhone = phone.replace(/\D/g, '').slice(-10);
-    if (!cleanName) { alert('Enter a name'); return; }
-    if (cleanPhone.length !== 10) { alert('Phone must be 10 digits'); return; }
-
-    setBusy(true);
-    try {
-      const res = await fetch('/api/auth/create-placeholder-player', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ phone: cleanPhone, name: cleanName }),
-      });
-      const body = (await res.json().catch(() => ({}))) as { id?: string; name?: string; error?: string };
-      if (!res.ok || !body.id) {
-        alert('Could not create player: ' + (body.error ?? `HTTP ${res.status}`));
-        return;
-      }
-      await addPlayer({ id: body.id, name: body.name || cleanName, phone: cleanPhone });
-    } finally {
-      setBusy(false);
-    }
+    setPlayers(p => [
+      ...p,
+      { id: crypto.randomUUID(), match_id: match.id, player_id: playerId, team_name: team, name: displayName },
+    ]);
+    return { ok: true };
   }
 
   async function removePlayer(mp: MatchPlayer) {
@@ -724,77 +699,26 @@ export default function CricketScorer({
               ))}
             </div>
 
-            {/* Search & add */}
+            {/* Search & add — shared component (CLAUDE.md "Reuse rule") */}
             {addTeam && (
               <div className="mt-4 pt-3 border-t border-gray-800">
-                <p className="text-xs text-gray-400 mb-2">Add to <span className="text-white">{addTeam}</span></p>
-                <input autoFocus type="text" placeholder="Search by name or mobile number…" value={searchQ}
-                  onChange={e => handleSearch(e.target.value)}
-                  className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-sm text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                <p className="text-xs text-gray-400 mb-2">
+                  Add to <span className="text-white">{addTeam}</span>
+                </p>
+                <PlayerSearchAndAdd
+                  onAdd={addPlayerToTeam}
+                  excludePlayerIds={players.filter(p => p.team_name === addTeam).map(p => p.player_id)}
+                  sameSidePlayerIds={players.filter(p => p.team_name === addTeam).map(p => p.player_id)}
+                  placeholder="Search by name or 10-digit mobile…"
+                  onSuccess={() => setAddTeam(null)}
                 />
-                {searchRes.length > 0 && (
-                  <div className="mt-1 flex flex-col divide-y divide-gray-800 border border-gray-700 rounded-lg overflow-hidden">
-                    {searchRes.map(p => (
-                      <button key={p.id} onClick={() => addPlayer(p)}
-                        className="text-left px-3 py-2 bg-gray-800 hover:bg-gray-700 flex items-center justify-between">
-                        <span className="text-sm text-white">{p.name}</span>
-                        {p.phone && <span className="text-xs text-gray-500">{p.phone}</span>}
-                      </button>
-                    ))}
-                  </div>
-                )}
-
-                {/* "Add new player" — appears when search has no matches, or always via button */}
-                {searchQ.trim().length >= 2 && searchRes.length === 0 && !newPlayerOpen && (
-                  <button onClick={() => { setNewPlayerName(searchQ.trim()); setNewPlayerPhone(''); setNewPlayerOpen(true); }}
-                    className="mt-2 w-full text-left px-3 py-2.5 bg-emerald-950/40 hover:bg-emerald-950/60 border border-emerald-800/60 rounded-lg flex items-center gap-2 transition-colors">
-                    <Plus size={14} className="text-emerald-400 shrink-0" />
-                    <div className="min-w-0">
-                      <p className="text-sm text-emerald-300 font-semibold truncate">
-                        Add &ldquo;{searchQ.trim()}&rdquo; as a new player
-                      </p>
-                      <p className="text-[11px] text-gray-500 mt-0.5">
-                        Creates a profile so stats count toward their career
-                      </p>
-                    </div>
-                  </button>
-                )}
-
-                {/* New player form */}
-                {newPlayerOpen && (
-                  <div className="mt-2 p-3 bg-gray-800/40 border border-emerald-800/60 rounded-lg flex flex-col gap-2">
-                    <p className="text-xs font-semibold text-emerald-300 mb-0.5">Create new player</p>
-                    <input type="text" placeholder="Player name" value={newPlayerName}
-                      onChange={e => setNewPlayerName(e.target.value)}
-                      className="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-1.5 text-sm text-white placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                    />
-                    <input type="tel" inputMode="numeric" placeholder="10-digit mobile number" value={newPlayerPhone}
-                      onChange={e => setNewPlayerPhone(e.target.value.replace(/\D/g, '').slice(0, 10))}
-                      className="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-1.5 text-sm text-white placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                    />
-                    <p className="text-[10px] text-gray-500 leading-snug">
-                      Creates a real account using this number. They sign in with the same mobile number and the 4-digit SMS code.
-                    </p>
-                    <div className="flex gap-2 mt-1">
-                      <button onClick={() => { setNewPlayerOpen(false); setNewPlayerName(''); setNewPlayerPhone(''); }}
-                        className="flex-1 py-1.5 rounded-lg bg-gray-800 border border-gray-700 text-xs text-gray-400 hover:text-white">
-                        Cancel
-                      </button>
-                      <button
-                        onClick={async () => {
-                          await createAndAddPlayer(newPlayerName, newPlayerPhone);
-                          setNewPlayerOpen(false); setNewPlayerName(''); setNewPlayerPhone('');
-                        }}
-                        disabled={busy || !newPlayerName.trim() || newPlayerPhone.length !== 10}
-                        className="flex-1 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-xs font-bold text-white disabled:opacity-40 disabled:hover:bg-emerald-600">
-                        {busy ? 'Creating…' : 'Create & Add'}
-                      </button>
-                    </div>
-                  </div>
-                )}
-
-                <button onClick={() => { setAddTeam(null); setSearchQ(''); setSearchRes([]); setNewPlayerOpen(false); }}
-                  className="mt-1.5 text-xs text-gray-600 hover:text-gray-400">Cancel</button>
+                <button
+                  type="button"
+                  onClick={() => setAddTeam(null)}
+                  className="mt-2 text-xs text-gray-600 hover:text-gray-400"
+                >
+                  Cancel
+                </button>
               </div>
             )}
           </Card>

@@ -752,6 +752,7 @@ function AddPlayerButton({
         <PlayerSearchAndAdd
           onAdd={addPlayer}
           excludePlayerIds={existingPlayerIds}
+          sameSidePlayerIds={existingPlayerIds}
           heading={`Add player to ${teamName}`}
           hint="Search by name or 10-digit phone. Create new if not found — phone numbers are never duplicated."
           onSuccess={() => { setOpen(false); router.refresh(); }}

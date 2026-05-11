@@ -28,7 +28,20 @@ export async function POST(req: Request) {
 
   try {
     const id = await findAuthUserIdByPhone10(admin, phone10);
-    return NextResponse.json({ exists: id != null });
+    if (id == null) {
+      // Also check for a soft-deleted profile whose phone we hashed away.
+      // findAuthUserIdByPhone10 won't find it via profiles.phone (cleared on
+      // delete) but the auth.users row with the same number is still around
+      // -- so id is non-null in practice. This branch is just a safety net.
+      return NextResponse.json({ exists: false });
+    }
+    const { data: profile } = await admin
+      .from('profiles')
+      .select('deleted_at')
+      .eq('id', id)
+      .maybeSingle();
+    const accountDeleted = Boolean((profile as { deleted_at?: string } | null)?.deleted_at);
+    return NextResponse.json({ exists: true, account_deleted: accountDeleted });
   } catch (e) {
     const msg = e instanceof Error ? e.message : 'Lookup failed';
     return NextResponse.json({ exists: false, checkSkipped: true, error: msg });

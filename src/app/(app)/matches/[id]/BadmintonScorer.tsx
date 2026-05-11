@@ -6,6 +6,7 @@ import { offlineMutate } from '@/lib/offline/mutate';
 import { reloadMatchClean } from '@/lib/matchNav';
 import { Match, MatchScore, MatchPlayer } from '@/types';
 import { Minus, Plus, X, UserPlus } from 'lucide-react';
+import PlayerSearchAndAdd, { type PlayerAddResult } from '@/components/PlayerSearchAndAdd';
 
 interface Props {
   match: Match;
@@ -64,13 +65,9 @@ export default function BadmintonScorer({
   });
   const [busy, setBusy] = useState(false);
 
-  // Player search/add state
+  // Player search/add — search + dedup + create-placeholder all live in
+  // the shared PlayerSearchAndAdd component (CLAUDE.md "Reuse rule").
   const [addTeam, setAddTeam] = useState<string | null>(null);
-  const [searchQ, setSearchQ] = useState('');
-  const [searchRes, setSearchRes] = useState<{ id: string; name: string; phone?: string | null }[]>([]);
-  const [newOpen, setNewOpen] = useState(false);
-  const [newName, setNewName] = useState('');
-  const [newPhone, setNewPhone] = useState('');
 
   // Direct-edit state
   const [editCell, setEditCell] = useState<{ team: 'a' | 'b'; idx: number } | null>(null);
@@ -124,20 +121,17 @@ export default function BadmintonScorer({
 
   // ── Player management ──────────────────────────────────────────────────────
 
-  async function handleSearch(q: string) {
-    setSearchQ(q);
-    if (q.length < 2) { setSearchRes([]); return; }
-    const [{ data: byName }, { data: byPhone }] = await Promise.all([
-      supabase.from('profiles').select('id, name, phone').ilike('name', `%${q}%`).limit(6),
-      supabase.from('profiles').select('id, name, phone').ilike('phone', `%${q}%`).limit(6),
-    ]);
-    const combined = [...(byName ?? []), ...(byPhone ?? [])];
-    const seen = new Set<string>();
-    setSearchRes(combined.filter(p => !seen.has(p.id) && !!seen.add(p.id)).slice(0, 8));
-  }
+  /** onAdd callback for PlayerSearchAndAdd — wires the picked/created
+   *  player into match_players for the currently chosen team via the
+   *  offline mutation queue. */
+  async function addPlayerToTeam(playerId: string, displayName: string): Promise<PlayerAddResult> {
+    const team = addTeam;
+    if (!team) return { ok: false, error: 'No team selected' };
 
-  async function addPlayer(profile: { id: string; name: string }) {
-    const team = addTeam!;
+    if (players.some(p => p.player_id === playerId && p.team_name === team)) {
+      return { ok: false, error: `${displayName} is already on this side.` };
+    }
+
     // Generate the row id client-side so the offline path doesn't have to
     // round-trip to learn what the server picked. The DB still has its own
     // default if `id` is omitted; supplying ours is fine.
@@ -145,37 +139,15 @@ export default function BadmintonScorer({
     const { error } = await offlineMutate(supabase, {
       kind: 'insert',
       table: 'match_players',
-      values: { id: rowId, match_id: match.id, player_id: profile.id, team_name: team },
+      values: { id: rowId, match_id: match.id, player_id: playerId, team_name: team },
     }, match.id);
-    if (!error) {
-      setPlayers(p => [...p, { id: rowId, match_id: match.id, player_id: profile.id, team_name: team, name: profile.name }]);
-    }
-    setSearchQ(''); setSearchRes([]); setAddTeam(null);
-  }
+    if (error) return { ok: false, error: error.message };
 
-  async function createAndAddPlayer() {
-    const cleanName = newName.trim();
-    const cleanPhone = newPhone.replace(/\D/g, '').slice(-10);
-    if (!cleanName) { alert('Enter a name'); return; }
-    if (cleanPhone.length !== 10) { alert('Phone must be 10 digits'); return; }
-    setBusy(true);
-
-    try {
-      const res = await fetch('/api/auth/create-placeholder-player', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ phone: cleanPhone, name: cleanName }),
-      });
-      const body = (await res.json().catch(() => ({}))) as { id?: string; name?: string; error?: string };
-      if (!res.ok || !body.id) {
-        alert('Could not create player: ' + (body.error ?? `HTTP ${res.status}`));
-        return;
-      }
-      await addPlayer({ id: body.id, name: body.name || cleanName });
-    } finally {
-      setBusy(false);
-      setNewOpen(false); setNewName(''); setNewPhone('');
-    }
+    setPlayers(p => [
+      ...p,
+      { id: rowId, match_id: match.id, player_id: playerId, team_name: team, name: displayName },
+    ]);
+    return { ok: true };
   }
 
   async function removePlayer(mp: MatchPlayer) {
@@ -299,7 +271,7 @@ export default function BadmintonScorer({
           activeSet={activeSet} scoringActive={scoringActive} canEdit={canEdit}
           onUpdate={(idx, d) => updatePoint('a', idx, d)}
           onRemovePlayer={removePlayer}
-          onAddClick={() => { setAddTeam(match.team_a_name); setSearchQ(''); setSearchRes([]); }}
+          onAddClick={() => { setAddTeam(match.team_a_name); }}
           editCell={editCell?.team === 'a' ? editCell.idx : null}
           onStartEdit={(idx) => setEditCell({ team: 'a', idx })}
           onFinishEdit={async (idx, value) => { setEditCell(null); await setPointDirect('a', idx, value); }}
@@ -314,7 +286,7 @@ export default function BadmintonScorer({
           activeSet={activeSet} scoringActive={scoringActive} canEdit={canEdit}
           onUpdate={(idx, d) => updatePoint('b', idx, d)}
           onRemovePlayer={removePlayer}
-          onAddClick={() => { setAddTeam(match.team_b_name); setSearchQ(''); setSearchRes([]); }}
+          onAddClick={() => { setAddTeam(match.team_b_name); }}
           editCell={editCell?.team === 'b' ? editCell.idx : null}
           onStartEdit={(idx) => setEditCell({ team: 'b', idx })}
           onFinishEdit={async (idx, value) => { setEditCell(null); await setPointDirect('b', idx, value); }}
@@ -322,63 +294,29 @@ export default function BadmintonScorer({
         />
       </div>
 
-      {/* ── Add player modal ────────────────────────────────────────────────── */}
+      {/* ── Add player panel (uses shared PlayerSearchAndAdd) ─────────────── */}
       {canEdit && scoringActive && addTeam && (
         <div className="bg-gray-900 border border-gray-800 rounded-xl p-4">
           <div className="flex items-center justify-between mb-2">
             <p className="text-sm text-gray-300">
               Add player to <span className="font-bold text-white">{teamLabel(addTeam)}</span>
             </p>
-            <button onClick={() => { setAddTeam(null); setNewOpen(false); }}
-              className="text-gray-500 hover:text-gray-300"><X size={16} /></button>
+            <button
+              type="button"
+              onClick={() => setAddTeam(null)}
+              className="text-gray-500 hover:text-gray-300"
+            >
+              <X size={16} />
+            </button>
           </div>
 
-          <input autoFocus type="text" placeholder="Search by name or mobile…" value={searchQ}
-            onChange={e => handleSearch(e.target.value)}
-            className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-emerald-500" />
-
-          {searchRes.length > 0 && (
-            <div className="mt-2 flex flex-col divide-y divide-gray-800 border border-gray-700 rounded-lg overflow-hidden">
-              {searchRes.map(p => (
-                <button key={p.id} onClick={() => addPlayer(p)}
-                  className="text-left px-3 py-2 bg-gray-800 hover:bg-gray-700 flex items-center justify-between">
-                  <span className="text-sm text-white">{p.name}</span>
-                  {p.phone && <span className="text-xs text-gray-500">{p.phone}</span>}
-                </button>
-              ))}
-            </div>
-          )}
-
-          {searchQ.trim().length >= 2 && searchRes.length === 0 && !newOpen && (
-            <button onClick={() => { setNewName(searchQ.trim()); setNewPhone(''); setNewOpen(true); }}
-              className="mt-2 w-full text-left px-3 py-2.5 bg-emerald-950/40 hover:bg-emerald-950/60 border border-emerald-800/60 rounded-lg flex items-center gap-2">
-              <UserPlus size={14} className="text-emerald-400 shrink-0" />
-              <div className="min-w-0">
-                <p className="text-sm text-emerald-300 font-semibold truncate">Add &ldquo;{searchQ.trim()}&rdquo; as a new player</p>
-                <p className="text-[11px] text-gray-500">Creates a profile so stats count</p>
-              </div>
-            </button>
-          )}
-
-          {newOpen && (
-            <div className="mt-2 p-3 bg-gray-800/40 border border-emerald-800/60 rounded-lg flex flex-col gap-2">
-              <p className="text-xs font-semibold text-emerald-300">Create new player</p>
-              <input type="text" placeholder="Player name" value={newName}
-                onChange={e => setNewName(e.target.value)}
-                className="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-1.5 text-sm text-white" />
-              <input type="tel" inputMode="numeric" placeholder="10-digit mobile" value={newPhone}
-                onChange={e => setNewPhone(e.target.value.replace(/\D/g, '').slice(0, 10))}
-                className="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-1.5 text-sm text-white" />
-              <div className="flex gap-2 mt-1">
-                <button onClick={() => { setNewOpen(false); setNewName(''); setNewPhone(''); }}
-                  className="flex-1 py-1.5 rounded-lg bg-gray-800 border border-gray-700 text-xs text-gray-400">Cancel</button>
-                <button onClick={createAndAddPlayer} disabled={busy || !newName.trim() || newPhone.length !== 10}
-                  className="flex-1 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-xs font-bold text-white disabled:opacity-40">
-                  {busy ? 'Creating…' : 'Create & Add'}
-                </button>
-              </div>
-            </div>
-          )}
+          <PlayerSearchAndAdd
+            onAdd={addPlayerToTeam}
+            excludePlayerIds={players.filter(p => p.team_name === addTeam).map(p => p.player_id)}
+            sameSidePlayerIds={players.filter(p => p.team_name === addTeam).map(p => p.player_id)}
+            placeholder="Search by name or 10-digit mobile…"
+            onSuccess={() => setAddTeam(null)}
+          />
         </div>
       )}
 
