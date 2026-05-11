@@ -1,11 +1,17 @@
+import { readFileSync } from 'fs';
+import { join } from 'path';
 import { ImageResponse } from 'next/og';
 
 export const size = { width: 1200, height: 630 };
 export const contentType = 'image/png';
-export const runtime = 'edge';
+/** Node so we can read `public/icons` at build/request time without relying on a live origin fetch. */
+export const runtime = 'nodejs';
 export const alt = 'GullySports — score your local matches';
 
 export default function LandingOgImage() {
+  const buf = readFileSync(join(process.cwd(), 'public/icons/icon-512.png'));
+  const iconDataUrl = `data:image/png;base64,${buf.toString('base64')}`;
+
   return new ImageResponse(
     (
       <div
@@ -22,20 +28,14 @@ export default function LandingOgImage() {
         }}
       >
         <div style={{ display: 'flex', alignItems: 'center', gap: 18 }}>
-          <div
-            style={{
-              width: 72,
-              height: 72,
-              borderRadius: 18,
-              background: '#10b981',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              fontSize: 40,
-            }}
-          >
-            🏆
-          </div>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={iconDataUrl}
+            width={72}
+            height={72}
+            alt=""
+            style={{ borderRadius: 18, objectFit: 'cover' }}
+          />
           <div style={{ fontSize: 44, fontWeight: 900, color: '#10b981', letterSpacing: -1 }}>
             GullySports
           </div>

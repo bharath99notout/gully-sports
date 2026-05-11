@@ -50,8 +50,8 @@ export async function middleware(request: NextRequest) {
     pathname === '/robots.txt' ||
     pathname === '/sitemap.xml' ||
     pathname.startsWith('/.well-known/') ||
-    pathname.startsWith('/icon-') ||
-    pathname === '/apple-icon' ||
+    pathname.startsWith('/icons/') ||
+    pathname === '/apple-icon.png' ||
     pathname === '/opengraph-image' ||
     pathname === '/twitter-image';
   const isPublicPage = pathname === '/'

@@ -12,15 +12,15 @@ export default function manifest(): MetadataRoute.Manifest {
     theme_color: '#10b981',
     background_color: '#030712',
     categories: ['sports', 'lifestyle', 'social'],
-    // PNG icons at 192 and 512 are required for Android Play Store / TWA via
-    // Bubblewrap. Maskable variants survive adaptive-icon shape masking.
+    // PNGs in /public/icons — same yellow trophy art as Play Store / Bubblewrap
+    // store_icon.png (regenerate those when you replace icon-512.png).
     icons: [
-      { src: '/icon.svg',         sizes: 'any',     type: 'image/svg+xml', purpose: 'any' },
-      { src: '/icon-192',         sizes: '192x192', type: 'image/png',     purpose: 'any' },
-      { src: '/icon-512',         sizes: '512x512', type: 'image/png',     purpose: 'any' },
-      { src: '/icon-192-mask',    sizes: '192x192', type: 'image/png',     purpose: 'maskable' },
-      { src: '/icon-512-mask',    sizes: '512x512', type: 'image/png',     purpose: 'maskable' },
-      { src: '/apple-icon',       sizes: '180x180', type: 'image/png',     purpose: 'any' },
+      { src: '/icon.svg', sizes: 'any', type: 'image/svg+xml', purpose: 'any' },
+      { src: '/icons/icon-192.png', sizes: '192x192', type: 'image/png', purpose: 'any' },
+      { src: '/icons/icon-512.png', sizes: '512x512', type: 'image/png', purpose: 'any' },
+      { src: '/icons/icon-192-mask.png', sizes: '192x192', type: 'image/png', purpose: 'maskable' },
+      { src: '/icons/icon-512-mask.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' },
+      { src: '/apple-icon.png', sizes: '180x180', type: 'image/png', purpose: 'any' },
     ],
     shortcuts: [
       { name: 'New Match',   short_name: 'New', description: 'Start scoring a new match', url: '/matches/new' },
