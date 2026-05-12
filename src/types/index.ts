@@ -179,3 +179,49 @@ export interface SportEvent {
   created_at: string;
   updated_at: string;
 }
+
+// ── Pickup requests / "Need Players Now" (migration 033) ────────────────────
+
+export type PickupStatus = 'open' | 'filled' | 'cancelled' | 'expired';
+
+export type PickupResponseStatus =
+  | 'requested' | 'accepted' | 'declined' | 'withdrew' | 'no_show' | 'showed_up';
+
+export interface PickupRequest {
+  id: string;
+  host_id: string;
+  sport: SportType;
+  ground_name: string;
+  ground_lat: number;
+  ground_lng: number;
+  slots_total: number;
+  format: string | null;
+  notes: string | null;
+  start_time: string;
+  expires_at: string;
+  status: PickupStatus;
+  match_id: string | null;
+  created_at: string;
+}
+
+export interface PickupResponse {
+  id: string;
+  request_id: string;
+  joiner_id: string;
+  status: PickupResponseStatus;
+  created_at: string;
+  decided_at: string | null;
+}
+
+/**
+ * What the dashboard rail / list pages render — request + denormalized host
+ * profile + how many accepted responses there are.
+ */
+export interface PickupRequestWithMeta extends PickupRequest {
+  host: { id: string; name: string; avatar_url: string | null };
+  accepted_count: number;
+  /** Distance in km from the viewer's current GPS, if known. */
+  distance_km: number | null;
+  /** The viewer's own response (if any) to this pickup. */
+  viewer_response: PickupResponse | null;
+}

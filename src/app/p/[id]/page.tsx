@@ -2,7 +2,8 @@ import type { Metadata } from 'next';
 import { createClient } from '@/lib/supabase/server';
 import { notFound } from 'next/navigation';
 import Link from 'next/link';
-import { Trophy, ArrowLeft } from 'lucide-react';
+import { ArrowLeft } from 'lucide-react';
+import AppLogoMark from '@/components/AppLogoMark';
 import AthleteCard from '@/components/AthleteCard';
 import ShareButton from '@/components/ShareButton';
 import FeedMatchCard from '@/components/FeedMatchCard';
@@ -202,8 +203,8 @@ export default async function PublicProfilePage({ params }: Props) {
               </div>
             </Link>
           ) : (
-            <Link href="/" className="flex items-center gap-2 font-bold text-emerald-400 text-lg">
-              <Trophy size={20} /> GullySports
+            <Link href="/" className="flex items-center gap-2">
+              <AppLogoMark iconSize={22} wordmarkClassName="text-lg font-bold text-emerald-400" />
             </Link>
           )}
 

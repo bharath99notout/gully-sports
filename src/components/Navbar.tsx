@@ -2,12 +2,13 @@
 
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { Trophy, Users, Calendar, User, LogOut, Menu, X, Search, Medal, Share2, ShieldCheck, Hourglass, Bell, Award, CalendarDays } from 'lucide-react';
+import { Home, Users, Calendar, User, LogOut, Menu, X, Search, Medal, Share2, ShieldCheck, Hourglass, Bell, Award, CalendarDays } from 'lucide-react';
 import { useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
+import AppLogoMark from '@/components/AppLogoMark';
 
 const navItems = [
-  { href: '/dashboard',    label: 'Home',        icon: Trophy },
+  { href: '/dashboard',    label: 'Home',        icon: Home },
   { href: '/events',       label: 'Events',      icon: CalendarDays },
   { href: '/matches',      label: 'Matches',     icon: Calendar },
   { href: '/tournaments',  label: 'Tournaments', icon: Award },
@@ -84,9 +85,8 @@ export default function Navbar({
   return (
     <nav className="bg-gray-950 border-b border-gray-800 sticky top-0 z-50">
       <div className="max-w-5xl mx-auto px-4 h-14 flex items-center justify-between">
-        <Link href="/dashboard" className="flex items-center gap-2 font-bold text-emerald-400 text-lg">
-          <Trophy size={20} />
-          GullySports
+        <Link href="/dashboard" className="flex items-center gap-2">
+          <AppLogoMark iconSize={24} wordmarkClassName="text-lg font-bold text-emerald-400" />
         </Link>
 
         {/* Desktop nav */}

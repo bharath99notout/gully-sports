@@ -2,7 +2,7 @@
 
 import { Suspense, useEffect, useRef, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
-import { Trophy } from 'lucide-react';
+import AppLogoMark from '@/components/AppLogoMark';
 import { createClient } from '@/lib/supabase/client';
 import {
   expectedLast4Otp,
@@ -221,9 +221,8 @@ function LoginForm() {
     <div className="min-h-screen bg-gray-950 flex items-center justify-center px-4">
       <div className="w-full max-w-sm">
 
-        <div className="flex items-center justify-center gap-2 mb-8">
-          <div className="bg-emerald-500 p-2 rounded-xl"><Trophy size={22} className="text-white" /></div>
-          <span className="text-xl font-bold text-white">GullySports</span>
+        <div className="flex justify-center mb-8">
+          <AppLogoMark iconSize={36} wordmarkClassName="text-xl font-bold text-white" />
         </div>
 
         <div className="bg-gray-900 border border-gray-800 rounded-2xl p-6">

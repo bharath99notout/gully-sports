@@ -1,16 +1,14 @@
 import Link from 'next/link';
-import { Trophy, Zap, Users, BarChart3 } from 'lucide-react';
+import { Zap, Users, BarChart3, History } from 'lucide-react';
+import AppLogoMark from '@/components/AppLogoMark';
 
 export default function LandingPage() {
   return (
     <div className="min-h-screen bg-gray-950 flex flex-col">
       <div className="flex-1 flex flex-col items-center justify-center text-center px-4 py-20">
-        <div className="flex items-center gap-3 mb-6">
-          <div className="bg-emerald-500 p-3 rounded-2xl">
-            <Trophy size={32} className="text-white" />
-          </div>
-          <h1 className="text-4xl font-bold text-white">GullySports</h1>
-        </div>
+        <h1 className="mb-6 flex justify-center m-0">
+          <AppLogoMark iconSize={48} wordmarkClassName="text-4xl font-bold text-white" />
+        </h1>
 
         <p className="text-xl text-gray-300 mb-3 max-w-md">
           Score your local matches in seconds.
@@ -39,7 +37,7 @@ export default function LandingPage() {
             { icon: Zap, text: 'Score in 10 seconds' },
             { icon: Users, text: 'Team management' },
             { icon: BarChart3, text: 'Player stats' },
-            { icon: Trophy, text: 'Match history' },
+            { icon: History, text: 'Match history' },
           ].map(({ icon: Icon, text }) => (
             <div key={text} className="flex items-center gap-2 bg-gray-900 border border-gray-800 rounded-full px-4 py-2 text-sm text-gray-300">
               <Icon size={14} className="text-emerald-400" />

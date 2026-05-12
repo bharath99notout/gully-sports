@@ -7,6 +7,8 @@ import EmailOtpSection from './EmailOtpSection';
 import SignOutButton from './SignOutButton';
 import ProfileAvatar from './ProfileAvatar';
 import DeleteAccountButton from './DeleteAccountButton';
+import PickupSettings from './PickupSettings';
+import type { SportType } from '@/types';
 
 /**
  * Account/settings page. Deliberately *not* a stats showcase — the dashboard
@@ -80,6 +82,31 @@ export default async function ProfilePage() {
   const displayName = profile?.name?.trim() || 'Player';
   const realEmail = isSyntheticPhoneEmail(user.email) ? '' : (user.email ?? '');
 
+  // Pickup preferences (mig 033) — fetch separately so the existing
+  // profile select stays compatible with older migrations.
+  let pickupPrefs: {
+    pickup_opt_in: boolean;
+    pickup_radius_km: number;
+    pickup_sports: SportType[];
+    pickup_quiet_start: string;
+    pickup_quiet_end: string;
+  } | null = null;
+  const { data: prefRow } = await supabase
+    .from('profiles')
+    .select('pickup_opt_in, pickup_radius_km, pickup_sports, pickup_quiet_start, pickup_quiet_end')
+    .eq('id', user.id)
+    .single();
+  if (prefRow) {
+    pickupPrefs = {
+      pickup_opt_in:      Boolean(prefRow.pickup_opt_in),
+      pickup_radius_km:   Number(prefRow.pickup_radius_km ?? 5),
+      pickup_sports:      (prefRow.pickup_sports ?? []) as SportType[],
+      pickup_quiet_start: prefRow.pickup_quiet_start ?? '22:00:00',
+      pickup_quiet_end:   prefRow.pickup_quiet_end   ?? '07:00:00',
+    };
+  }
+  const vapidPub = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY ?? '';
+
   return (
     <div className="max-w-md mx-auto flex flex-col gap-5">
       {/* Compact header — small avatar + name + link to public profile */}
@@ -109,6 +136,15 @@ export default async function ProfilePage() {
           enabled={Boolean((profile as { email_otp_enabled?: boolean } | null)?.email_otp_enabled)}
         />
       </section>
+
+      {/* Pickup notification preferences */}
+      {pickupPrefs && vapidPub && (
+        <PickupSettings
+          userId={user.id}
+          initial={pickupPrefs}
+          vapidPublicKey={vapidPub}
+        />
+      )}
 
       {/* Danger / device controls */}
       <div className="flex flex-col items-stretch gap-3 pt-2 pb-6">

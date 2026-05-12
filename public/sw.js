@@ -1,5 +1,5 @@
-// GullySports Service Worker — v1
-const CACHE = 'gullysports-v1';
+// GullySports Service Worker — v2 (adds Web Push for "Need Players Now")
+const CACHE = 'gullysports-v2';
 const PRECACHE = ['/', '/offline', '/manifest.webmanifest', '/icon.svg'];
 
 self.addEventListener('install', (e) => {
@@ -14,6 +14,47 @@ self.addEventListener('activate', (e) => {
     caches.keys().then((keys) =>
       Promise.all(keys.filter((k) => k !== CACHE).map((k) => caches.delete(k)))
     ).then(() => self.clients.claim())
+  );
+});
+
+// ── Web Push ──────────────────────────────────────────────────────────────
+// Payload from server (src/lib/push.ts):
+//   { title, body, url, tag, icon }
+self.addEventListener('push', (event) => {
+  let payload = {};
+  try {
+    payload = event.data ? event.data.json() : {};
+  } catch {
+    // Some browsers send a malformed payload; fall through with defaults.
+  }
+  const title = payload.title || 'GullySports';
+  const options = {
+    body: payload.body || '',
+    icon: payload.icon || '/icon-192',
+    badge: '/icon-192',
+    data: { url: payload.url || '/' },
+    tag: payload.tag,             // coalesce duplicate notifications
+    renotify: !!payload.tag,
+  };
+  event.waitUntil(self.registration.showNotification(title, options));
+});
+
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close();
+  const url = (event.notification.data && event.notification.data.url) || '/';
+  event.waitUntil(
+    clients.matchAll({ type: 'window', includeUncontrolled: true }).then((wins) => {
+      // Focus an existing tab if it's open at the same URL; otherwise open a new one.
+      for (const w of wins) {
+        try {
+          const u = new URL(w.url);
+          if (u.pathname === url || w.url.endsWith(url)) {
+            return w.focus();
+          }
+        } catch { /* ignore */ }
+      }
+      return clients.openWindow(url);
+    })
   );
 });
 

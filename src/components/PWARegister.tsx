@@ -1,7 +1,8 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { Download, X, Share } from 'lucide-react';
+import { X, Share } from 'lucide-react';
+import AppLogoMark from '@/components/AppLogoMark';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type BeforeInstallPromptEvent = any;
@@ -78,8 +79,8 @@ export default function PWARegister() {
                       bg-gray-900 border border-emerald-700/60 rounded-2xl shadow-2xl shadow-black/60
                       p-4 flex flex-col gap-2 animate-in slide-in-from-bottom-4">
         <div className="flex items-start gap-3">
-          <div className="w-10 h-10 rounded-xl bg-emerald-600/20 border border-emerald-700/50 flex items-center justify-center shrink-0">
-            <Download size={18} className="text-emerald-400" />
+          <div className="w-10 h-10 rounded-xl overflow-hidden border border-emerald-700/50 shrink-0 flex items-center justify-center">
+            <AppLogoMark iconSize={40} wordmark={false} />
           </div>
           <div className="flex-1 min-w-0">
             <p className="text-sm font-bold text-white">Install GullySports</p>
@@ -102,8 +103,8 @@ export default function PWARegister() {
     <div className="fixed bottom-4 left-4 right-4 md:left-auto md:right-6 md:bottom-6 md:max-w-sm z-50
                     bg-gray-900 border border-emerald-700/60 rounded-2xl shadow-2xl shadow-black/60
                     p-4 flex items-center gap-3 animate-in slide-in-from-bottom-4">
-      <div className="w-10 h-10 rounded-xl bg-emerald-600/20 border border-emerald-700/50 flex items-center justify-center shrink-0">
-        <Download size={18} className="text-emerald-400" />
+      <div className="w-10 h-10 rounded-xl overflow-hidden border border-emerald-700/50 shrink-0 flex items-center justify-center">
+        <AppLogoMark iconSize={40} wordmark={false} />
       </div>
       <div className="flex-1 min-w-0">
         <p className="text-sm font-bold text-white">Install GullySports</p>

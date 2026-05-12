@@ -1,4 +1,6 @@
 import { ImageResponse } from 'next/og';
+import { readFileSync } from 'fs';
+import { join } from 'path';
 import { createClient } from '@/lib/supabase/server';
 import {
   buildAthleteData,
@@ -24,6 +26,11 @@ const SPORT_META: Record<SportKey, { emoji: string; label: string }> = {
   table_tennis: { emoji: '🏓', label: 'T. Tennis' },
   foosball:     { emoji: '🥅', label: 'Foosball' },
 };
+
+function brandIconDataUri(): string {
+  const buf = readFileSync(join(process.cwd(), 'public/icons/icon-512.png'));
+  return `data:image/png;base64,${buf.toString('base64')}`;
+}
 
 export default async function ProfileOgImage({
   params,
@@ -89,6 +96,8 @@ export default async function ProfileOgImage({
   const totalWins = (Object.keys(SPORT_META) as SportKey[])
     .reduce((sum, s) => sum + athlete.sportStats[s].wins, 0);
 
+  const brandIcon = brandIconDataUri();
+
   return new ImageResponse(
     (
       <div
@@ -106,20 +115,19 @@ export default async function ProfileOgImage({
       >
         {/* Top bar — branding */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
-          <div
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={brandIcon}
+            alt=""
+            width={52}
+            height={52}
             style={{
               width: 52,
               height: 52,
               borderRadius: 14,
-              background: '#10b981',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              fontSize: 30,
+              objectFit: 'contain',
             }}
-          >
-            🏆
-          </div>
+          />
           <div style={{ fontSize: 30, fontWeight: 800, color: '#10b981', letterSpacing: -0.5 }}>
             GullySports
           </div>

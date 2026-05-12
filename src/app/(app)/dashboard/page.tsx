@@ -14,6 +14,7 @@ import CricketStatsSection from '@/components/CricketStatsSection';
 import FootballStatsPanel from '@/components/FootballStatsPanel';
 import RacquetStatsPanel from '@/components/RacquetStatsPanel';
 import FoosballStatsPanel from '@/components/FoosballStatsPanel';
+import NearbyPickupsRail from '@/components/NearbyPickupsRail';
 import SportIcon from '@/components/SportIcon';
 import type { SportType } from '@/types';
 import { calcCaliber, getCaliberLabel, SportKey } from '@/lib/caliber';
@@ -247,6 +248,11 @@ export default async function DashboardPage() {
       {pendingForMe.length > 0 && (
         <PendingMatchesSection matches={pendingForMe} />
       )}
+
+      {/* Need Players Now — geo-aware rail of nearby live pickup requests.
+          Client component (needs GPS). Renders nothing until geolocation
+          resolves, then surfaces a horizontal scroll of nearby pings. */}
+      <NearbyPickupsRail viewerId={user!.id} />
 
       {/* New match CTA — one tile per sport. Grid wraps to a second row
           on mobile (3 cols) so all five sports stay visible without
