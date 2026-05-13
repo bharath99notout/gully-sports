@@ -16,9 +16,8 @@ const SWEEP_INTERVAL_MS = 60_000; // 60s
  * 'confirmed'. Safe to call on every page load — the rate limiter and DB
  * partial index keep it cheap.
  *
- * Implementation note: primary trigger is `/api/cron/auto-confirm` (Vercel
- * Cron every 5 min). We still call this from a few match-related server paths
- * as a safety net until the cron is always configured.
+ * Invoked from the authenticated app layout (navbar pending badge) and the
+ * match detail page so traffic drives the sweep; no scheduled HTTP job.
  */
 export async function maybeSweepAutoConfirms(): Promise<void> {
   const now = Date.now();
@@ -30,7 +29,7 @@ export async function maybeSweepAutoConfirms(): Promise<void> {
     await supabase.rpc('sweep_auto_confirms');
   } catch (err) {
     // Don't break the page if the sweep fails — just log it. The next
-    // request (or pg_cron eventually) will catch up.
+    // request will catch up.
     console.warn('[maybeSweepAutoConfirms] sweep failed', err);
   }
 }

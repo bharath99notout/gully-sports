@@ -6,6 +6,7 @@ import {
   getPendingMatchesForUser,
   getAdminQueueCount,
   isUserAdmin,
+  maybeSweepAutoConfirms,
 } from '@/lib/matchConfirmationServer';
 import { getUnreadNotificationCount } from '@/lib/notificationsServer';
 
@@ -19,6 +20,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   let notificationCount = 0;
   let isAdmin = false;
   if (user) {
+    await maybeSweepAutoConfirms();
     const [pending, admin, notif] = await Promise.all([
       getPendingMatchesForUser(user.id),
       isUserAdmin(user.id),
