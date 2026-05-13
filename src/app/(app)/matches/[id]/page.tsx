@@ -13,6 +13,7 @@ import type { SportKey } from '@/lib/caliber';
 import { buildMatchPlayerImpactRows } from '@/lib/matchImpact';
 import MatchPlayerImpactSection from './MatchPlayerImpactSection';
 import AdminDeleteMatchButton from './AdminDeleteMatchButton';
+import MatchPeerRatingPanel from './MatchPeerRatingPanel';
 
 // Code-split the per-sport scorers so each match page only ships the JS for
 // the sport actually being shown. Loading fallbacks keep the layout stable.
@@ -62,8 +63,15 @@ export default async function MatchDetailPage({ params, searchParams }: Props) {
     && confirmationState === 'disputed'
     && viewerIsScorer;
 
-  // Fetch confirmations, scorer, roster, all stat rows, admin flag — one roundtrip batch.
-  const [{ data: confRows }, { data: scorerRow }, { data: mp }, { data: allPms }, { data: adminProfile }] = await Promise.all([
+  // Fetch confirmations, scorer, roster, all stat rows, admin flag, viewer ratings — one roundtrip batch.
+  const [
+    { data: confRows },
+    { data: scorerRow },
+    { data: mp },
+    { data: allPms },
+    { data: adminProfile },
+    { data: ratingRows },
+  ] = await Promise.all([
     supabase
       .from('match_confirmations')
       .select('player_id, status, disputed_reason')
@@ -82,6 +90,13 @@ export default async function MatchDetailPage({ params, searchParams }: Props) {
     user
       ? supabase.from('profiles').select('is_admin').eq('id', user.id).single()
       : Promise.resolve({ data: null }),
+    user
+      ? supabase
+          .from('player_peer_ratings')
+          .select('player_id, rating')
+          .eq('match_id', id)
+          .eq('reviewer_id', user.id)
+      : Promise.resolve({ data: [] as Array<{ player_id: string; rating: number }> }),
   ]);
   const confByPlayer = new Map(
     (confRows ?? []).map(c => [c.player_id, c]),
@@ -208,6 +223,10 @@ export default async function MatchDetailPage({ params, searchParams }: Props) {
         scoreB,
       )
     : [];
+  const viewerIsParticipant = !!user && matchPlayers.some(p => p.player_id === user.id);
+  const existingRatings = Object.fromEntries(
+    ((ratingRows ?? []) as Array<{ player_id: string; rating: number }>).map(r => [r.player_id, r.rating]),
+  );
 
   return (
     <div className="max-w-2xl flex flex-col gap-6">
@@ -370,6 +389,15 @@ export default async function MatchDetailPage({ params, searchParams }: Props) {
       )}
 
       <MatchPlayerImpactSection rows={impactRows} />
+
+      {match.status === 'completed' && confirmationState === 'confirmed' && user && viewerIsParticipant && (
+        <MatchPeerRatingPanel
+          matchId={match.id}
+          currentUserId={user.id}
+          players={matchPlayers}
+          initialRatings={existingRatings}
+        />
+      )}
     </div>
   );
 }

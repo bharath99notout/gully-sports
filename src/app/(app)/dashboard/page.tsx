@@ -1,4 +1,4 @@
-import { createClient, getServerAuth } from '@/lib/supabase/server';
+import { getServerAuth } from '@/lib/supabase/server';
 import Link from 'next/link';
 import { Plus } from 'lucide-react';
 import { headers } from 'next/headers';
@@ -6,9 +6,9 @@ import AthleteCard from '@/components/AthleteCard';
 import AvatarUpload from '@/components/AvatarUpload';
 import FeedMatchCard from '@/components/FeedMatchCard';
 import ShareButton from '@/components/ShareButton';
-import { buildAthleteData, enrichStatsWithTeamNames } from '@/lib/athleteData';
+import { buildAthleteData, enrichStatsWithTeamNames, type RawStat } from '@/lib/athleteData';
 import { fetchPlayerDetailedStats } from '@/lib/playerDetailedStats';
-import { getPendingMatchesForUser, maybeSweepAutoConfirms } from '@/lib/matchConfirmationServer';
+import { getPendingMatchesForUser } from '@/lib/matchConfirmationServer';
 import PendingMatchesSection from '@/components/PendingMatchesSection';
 import CricketStatsSection from '@/components/CricketStatsSection';
 import FootballStatsPanel from '@/components/FootballStatsPanel';
@@ -20,47 +20,61 @@ import type { SportType } from '@/types';
 import { calcCaliber, getCaliberLabel, SportKey } from '@/lib/caliber';
 import TrophyBanner, { Achievement } from '@/components/TrophyBanner';
 import { isMatchExcludedFromStats, type ConfirmationState } from '@/lib/matchConfirmation';
+import { getTrustScoreForPlayer } from '@/lib/trustScoreServer';
 
 export default async function DashboardPage() {
   const { supabase, user } = await getServerAuth();
 
-  // Run the auto-confirm sweep on every dashboard load (rate-limited to 1/min)
-  // so the 1h auto-confirm window doesn't depend on people viewing match
-  // pages. The dashboard is the most-hit page, so it's the right place.
-  await maybeSweepAutoConfirms();
+  const statsSelect = `
+    sport, runs_scored, wickets_taken, catches_taken, goals_scored, balls_faced, fours, sixes,
+    balls_bowled, runs_conceded, is_out, match_id,
+    matches(winner_team_id, winner_team_name, team_a_id, team_b_id, team_a_name, team_b_name, confirmation_state)
+  `;
 
-  // Pending matches that need this user's confirm/dispute response.
-  const pendingForMe = user ? await getPendingMatchesForUser(user.id) : [];
-
-  // Fetch profile + stats + match_players (for win attribution)
-  const [{ data: profile }, { data: myStats }, { data: myMatchPlayers }] = await Promise.all([
-    supabase.from('profiles').select('id, name, avatar_url, created_at').eq('id', user!.id).single(),
-    supabase
-      .from('player_match_stats')
-      .select('sport, runs_scored, wickets_taken, catches_taken, goals_scored, balls_faced, fours, sixes, balls_bowled, runs_conceded, is_out, match_id, matches(winner_team_id, winner_team_name, team_a_id, team_b_id, team_a_name, team_b_name, confirmation_state)')
-      .eq('player_id', user!.id),
-    supabase
-      .from('match_players')
-      .select('match_id, team_name')
-      .eq('player_id', user!.id),
+  const [
+    pendingForMe,
+    hdrs,
+    trustScore,
+    bundle,
+  ] = await Promise.all([
+    user ? getPendingMatchesForUser(user.id) : Promise.resolve([]),
+    headers(),
+    getTrustScoreForPlayer(user!.id, supabase),
+    Promise.all([
+      supabase.from('profiles').select('id, name, avatar_url, created_at').eq('id', user!.id).single(),
+      supabase.from('player_match_stats').select(statsSelect).eq('player_id', user!.id),
+      supabase
+        .from('match_players')
+        .select('match_id, team_name')
+        .eq('player_id', user!.id),
+    ]),
   ]);
 
-  // Only fetch matches the user actually played in
+  const [{ data: profile }, { data: myStats }, { data: myMatchPlayers }] = bundle;
+
   const myMatchIds = [...new Set((myStats ?? []).map(s => s.match_id))];
 
-  // One feed query — derive `liveMatches` from it client-side instead of a
-  // second roundtrip. The feed already includes status + scores we need.
-  const { data: rawFeed } = myMatchIds.length > 0
-    ? await supabase
-        .from('matches')
-        .select(`id, sport, status, confirmation_state, team_a_name, team_b_name, winner_team_id, winner_team_name, team_a_id, team_b_id, played_at,
+  const [rawFeedRes, detailedStats] = await Promise.all([
+    myMatchIds.length > 0
+      ? supabase
+          .from('matches')
+          .select(`id, sport, status, confirmation_state, team_a_name, team_b_name, winner_team_id, winner_team_name, team_a_id, team_b_id, played_at,
           match_scores(team_name, runs, wickets, overs_faced, goals, sets),
           player_match_stats(player_id, runs_scored, wickets_taken, catches_taken, goals_scored, profiles(id, name))`)
-        .in('id', myMatchIds)
-        .neq('status', 'upcoming')
-        .order('played_at', { ascending: false })
-        .limit(15)
-    : { data: [] };
+          .in('id', myMatchIds)
+          .neq('status', 'upcoming')
+          .order('played_at', { ascending: false })
+          .limit(15)
+      : Promise.resolve({ data: [] }),
+    fetchPlayerDetailedStats(
+      user!.id,
+      (myStats ?? []) as unknown as RawStat[],
+      (myMatchPlayers ?? []) as Array<{ match_id: string; team_name: string }>,
+      supabase,
+    ),
+  ]);
+
+  const rawFeed = rawFeedRes.data;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const liveMatches = ((rawFeed ?? []) as any[]).filter(m => m.status === 'live').slice(0, 5);
 
@@ -76,11 +90,7 @@ export default async function DashboardPage() {
 
   // Same expandable per-sport details we use on profile pages, so the
   // dashboard AthleteCard becomes interactive too — no extra section needed.
-  const detailedStats = await fetchPlayerDetailedStats(
-    user!.id,
-    enrichedStats,
-    (myMatchPlayers ?? []) as Array<{ match_id: string; team_name: string }>,
-  );
+  // (Fetched in parallel with the recent-matches feed above.)
   const expandableDetails: Partial<Record<SportKey, React.ReactNode>> = {};
   if (detailedStats.cricket.innings > 0
       || detailedStats.cricket.bowlingInnings > 0
@@ -188,7 +198,6 @@ export default async function DashboardPage() {
   // Share-my-profile setup — points share targets at the public /p/<id> route
   // so anyone (logged-out included) can open the link, with a versioned OG
   // image for fresh previews.
-  const hdrs = await headers();
   const host = hdrs.get('host') ?? '';
   const proto = hdrs.get('x-forwarded-proto') ?? (host.includes('localhost') ? 'http' : 'https');
   const origin = `${proto}://${host}`;
@@ -234,6 +243,7 @@ export default async function DashboardPage() {
         editSlot={<AvatarUpload userId={user!.id} />}
         expandableDetails={expandableDetails}
         defaultOpenSport={null}
+        trustScore={trustScore}
       />
 
       {/* Trust workflow — needs your attention. Sits right under the hero

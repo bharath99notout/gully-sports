@@ -12,8 +12,10 @@ import FootballStatsPanel from '@/components/FootballStatsPanel';
 import RacquetStatsPanel from '@/components/RacquetStatsPanel';
 import FoosballStatsPanel from '@/components/FoosballStatsPanel';
 import ShareButton from '@/components/ShareButton';
+import TrustScoreBadge from '@/components/TrustScoreBadge';
 import { headers } from 'next/headers';
 import { calcCaliber, getCaliberLabel, getPlayerTaglines, SportKey } from '@/lib/caliber';
+import { getTrustScoreForPlayer } from '@/lib/trustScoreServer';
 
 interface Props { params: Promise<{ id: string }> }
 
@@ -65,7 +67,7 @@ export default async function PublicPlayerPage({ params }: Props) {
     redirect(`/p/${id}`);
   }
 
-  const [{ data: profile }, { data: allStats }, { data: rawMatches }, { data: myMatchPlayers }] = await Promise.all([
+  const [{ data: profile }, { data: allStats }, { data: rawMatches }, { data: myMatchPlayers }, trustScore] = await Promise.all([
     supabase.from('profiles').select('id, name, avatar_url, created_at').eq('id', id).single(),
 
     supabase
@@ -89,6 +91,7 @@ export default async function PublicPlayerPage({ params }: Props) {
       .from('match_players')
       .select('match_id, team_name')
       .eq('player_id', id),
+    getTrustScoreForPlayer(id, supabase),
   ]);
 
   if (!profile) notFound();
@@ -285,6 +288,8 @@ export default async function PublicPlayerPage({ params }: Props) {
         </div>
       </section>
 
+      {isOwnProfile && <TrustScoreBadge trustScore={trustScore} />}
+
       <AthleteCard athlete={athleteData} expandableDetails={expandableDetails} hideIdentityBlock />
 
       {feedMatches.length > 0 && (
@@ -306,6 +311,8 @@ export default async function PublicPlayerPage({ params }: Props) {
           <p className="text-gray-500 text-sm">No matches played yet.</p>
         </div>
       )}
+
+      {!isOwnProfile && <TrustScoreBadge trustScore={trustScore} />}
     </div>
   );
 }

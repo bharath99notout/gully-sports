@@ -1,3 +1,4 @@
+import type { SupabaseClient } from '@supabase/supabase-js';
 import { createClient } from './supabase/server';
 import {
   buildCricketDetail, buildFootballDetail, buildRacquetDetail,
@@ -30,6 +31,8 @@ export async function fetchPlayerDetailedStats(
    */
   rawStats: RawStat[],
   myMatchPlayers: Array<{ match_id: string; team_name: string }>,
+  /** When set, avoids a second `createClient()` (same request as the caller). */
+  supabaseClient?: SupabaseClient,
 ): Promise<DetailedStats> {
   const enriched = enrichStatsWithTeamNames(rawStats, myMatchPlayers);
 
@@ -58,7 +61,7 @@ export async function fetchPlayerDetailedStats(
   const foosballMatchIds = [...new Set(foosballRows.map(r => r.match_id))];
   const allDetailMatchIds = [...new Set([...racquetMatchIds, ...foosballMatchIds])];
 
-  const supabase = await createClient();
+  const supabase = supabaseClient ?? (await createClient());
 
   const [{ data: matchScores }, { data: allMatchPlayers }, { data: matchMeta }] = await Promise.all([
     racquetMatchIds.length > 0

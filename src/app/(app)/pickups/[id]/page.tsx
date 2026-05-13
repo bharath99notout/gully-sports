@@ -6,6 +6,8 @@ import { createClient, getServerAuth } from '@/lib/supabase/server';
 import { getPickupById, getPickupResponses, countMutualMatches } from '@/lib/pickupsServer';
 import { formatEventDateTime } from '@/lib/formatDateTime';
 import { buildPickupWaContextLine } from '@/lib/pickupShareText';
+import { getTrustScoresForPlayers } from '@/lib/trustScoreServer';
+import { TrustScoreChip } from '@/components/TrustScoreBadge';
 import SportIcon from '@/components/SportIcon';
 import PickupActions from './PickupActions';
 import HostApprovalList from './HostApprovalList';
@@ -44,10 +46,15 @@ export default async function PickupDetailPage({ params }: Props) {
   const mutualMatches = await countMutualMatches(user.id, pickup.host_id);
 
   const joinerIds = [...new Set(responses.map(r => r.joiner_id))];
-  const mutualEntries = await Promise.all(
-    joinerIds.map(async jid => [jid, await countMutualMatches(user.id, jid)] as const),
-  );
+  const [mutualEntries, trustScores] = await Promise.all([
+    Promise.all(joinerIds.map(async jid => [jid, await countMutualMatches(user.id, jid)] as const)),
+    getTrustScoresForPlayers([pickup.host_id, ...joinerIds], supabase),
+  ]);
   const mutualByJoinerId = Object.fromEntries(mutualEntries) as Record<string, number>;
+  const trustByJoinerId = Object.fromEntries(
+    joinerIds.map(jid => [jid, trustScores.get(jid)]),
+  );
+  const hostTrustScore = trustScores.get(pickup.host_id);
 
   const isHost = pickup.host_id === user.id;
   const accepted = responses.filter(r => r.status === 'accepted');
@@ -123,6 +130,7 @@ export default async function PickupDetailPage({ params }: Props) {
                 </span>
               )}
             </p>
+            {hostTrustScore && <div className="mt-1"><TrustScoreChip trustScore={hostTrustScore} /></div>}
           </div>
 
           <div className="grid grid-cols-2 gap-3">
@@ -198,6 +206,7 @@ export default async function PickupDetailPage({ params }: Props) {
             sportLabel={sportLabel}
             groundName={pickup.ground_name}
             mutualByJoinerId={mutualByJoinerId}
+            trustByJoinerId={trustByJoinerId}
           />
         </div>
       )}

@@ -1,4 +1,5 @@
 import 'server-only';
+import { cache } from 'react';
 import { createClient } from './supabase/server';
 import type { SportType } from '@/types';
 
@@ -15,9 +16,9 @@ const SWEEP_INTERVAL_MS = 60_000; // 60s
  * 'confirmed'. Safe to call on every page load — the rate limiter and DB
  * partial index keep it cheap.
  *
- * Implementation note: until pg_cron is set up, this is the auto-confirm
- * mechanism. We call it from server components that read match lists so it
- * runs naturally as users browse the app.
+ * Implementation note: primary trigger is `/api/cron/auto-confirm` (Vercel
+ * Cron every 5 min). We still call this from a few match-related server paths
+ * as a safety net until the cron is always configured.
  */
 export async function maybeSweepAutoConfirms(): Promise<void> {
   const now = Date.now();
@@ -52,9 +53,10 @@ export interface PendingMatchSummary {
  * participant and their confirmation row is still 'pending' (or where they
  * disputed but the scorer hasn't responded yet).
  *
- * Used by the dashboard banner and the Navbar badge counter.
+ * Wrapped in `React.cache()` so layout + dashboard in the same request share
+ * one DB round-trip.
  */
-export async function getPendingMatchesForUser(userId: string): Promise<PendingMatchSummary[]> {
+async function getPendingMatchesForUserImpl(userId: string): Promise<PendingMatchSummary[]> {
   const supabase = await createClient();
 
   // Pull the user's rows where they still owe a response, then enrich with
@@ -90,6 +92,8 @@ export async function getPendingMatchesForUser(userId: string): Promise<PendingM
     auto_confirm_at: m.auto_confirm_at,
   }));
 }
+
+export const getPendingMatchesForUser = cache(getPendingMatchesForUserImpl);
 
 /**
  * Count of matches sitting in the admin queue. Used by Navbar to show a red

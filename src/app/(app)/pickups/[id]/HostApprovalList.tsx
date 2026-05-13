@@ -7,6 +7,8 @@ import { Loader2, Check, X } from 'lucide-react';
 import { decideResponse, markAttendance } from '@/app/actions/pickups';
 import type { PickupResponse } from '@/types';
 import { buildPickupWaContextLine } from '@/lib/pickupShareText';
+import { TrustScoreChip } from '@/components/TrustScoreBadge';
+import type { PlayerTrustScore } from '@/lib/trustScore';
 
 type ResponseWithJoiner = PickupResponse & {
   joiner: { id: string; name: string; avatar_url: string | null; phone: string | null };
@@ -17,6 +19,7 @@ export default function HostApprovalList({
   sportLabel,
   groundName,
   mutualByJoinerId = {},
+  trustByJoinerId = {},
 }: {
   pending: ResponseWithJoiner[];
   accepted: ResponseWithJoiner[];
@@ -30,12 +33,15 @@ export default function HostApprovalList({
   groundName: string;
   /** Host's mutual match count with each joiner (for quick trust signal). */
   mutualByJoinerId?: Record<string, number>;
+  /** Trust score for each joiner, read from player_trust_scores. */
+  trustByJoinerId?: Record<string, PlayerTrustScore | undefined>;
 }) {
   const router = useRouter();
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [renderedAt] = useState(() => Date.now());
   const slotsLeft = Math.max(0, slotsTotal - accepted.length);
 
-  const matchStarted = new Date(startTimeIso).getTime() <= Date.now();
+  const matchStarted = new Date(startTimeIso).getTime() <= renderedAt;
   const finalised = allResponses?.filter(r =>
     r.status === 'showed_up' || r.status === 'no_show',
   ) ?? [];
@@ -79,6 +85,7 @@ export default function HostApprovalList({
             {accepted.map(r => {
               const busy = busyId === r.id;
               const mutual = mutualByJoinerId[r.joiner_id] ?? 0;
+              const trustScore = trustByJoinerId[r.joiner_id];
               const digits = r.joiner.phone?.replace(/\D/g, '').slice(-10) ?? '';
               const waHref =
                 digits.length === 10
@@ -107,6 +114,7 @@ export default function HostApprovalList({
                         {mutual} mutual match{mutual === 1 ? '' : 'es'}
                       </p>
                     )}
+                    {trustScore && <div className="mt-1"><TrustScoreChip trustScore={trustScore} /></div>}
                     <Link href={`/players/${r.joiner.id}`} className="text-[10px] text-emerald-400 hover:underline">
                       Profile & stats →
                     </Link>
@@ -185,6 +193,7 @@ export default function HostApprovalList({
               const busy = busyId === r.id;
               const slotsFull = slotsLeft <= 0;
               const mutual = mutualByJoinerId[r.joiner_id] ?? 0;
+              const trustScore = trustByJoinerId[r.joiner_id];
               return (
                 <div key={r.id} className="rounded-xl border border-gray-800/80 bg-gray-950/40 p-3">
                   <div className="flex items-start gap-2.5">
@@ -205,6 +214,7 @@ export default function HostApprovalList({
                           Tap profile to see caliber & recent games
                         </p>
                       )}
+                      {trustScore && <div className="mt-2"><TrustScoreChip trustScore={trustScore} /></div>}
                       <Link href={`/players/${r.joiner.id}`} className="inline-block mt-1 text-xs text-emerald-400 font-semibold hover:underline">
                         View full profile →
                       </Link>

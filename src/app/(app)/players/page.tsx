@@ -1,37 +1,91 @@
-import { createClient } from '@/lib/supabase/server';
+import { getServerAuth } from '@/lib/supabase/server';
 import { AthleteCardMini } from '@/components/AthleteCard';
 import PlayerSearchWidget from '@/components/PlayerSearchWidget';
-import { buildAthleteData, enrichStatsWithTeamNames } from '@/lib/athleteData';
+import { buildAthleteData, enrichStatsWithTeamNames, type RawStat } from '@/lib/athleteData';
+import { getTrustScoresForPlayers } from '@/lib/trustScoreServer';
+
+type MatchMeta = {
+  id: string;
+  winner_team_id: string | null;
+  winner_team_name: string | null;
+  team_a_id: string | null;
+  team_b_id: string | null;
+  team_a_name: string | null;
+  team_b_name: string | null;
+  confirmation_state: string | null;
+};
+
+type FlatPlayerStat = {
+  player_id: string;
+  sport: string;
+  runs_scored: number | null;
+  wickets_taken: number | null;
+  catches_taken: number | null;
+  goals_scored: number | null;
+  match_id: string;
+};
 
 export default async function PlayersPage() {
-  const supabase = await createClient();
+  const { supabase } = await getServerAuth();
 
-  // Browse: list recent profiles. Active search lives in PlayerSearchWidget,
-  // which deep-links straight to /players/<id>, so we no longer need a
-  // server-side filter form here.
-  const selectCols = `
-      id, name, avatar_url, created_at,
-      player_match_stats(sport, runs_scored, wickets_taken, catches_taken, goals_scored, match_id, matches(winner_team_id, winner_team_name, team_a_id, team_b_id, team_a_name, team_b_name, confirmation_state))
-    `;
+  const { data: profiles } = await supabase
+    .from('profiles')
+    .select('id, name, avatar_url, created_at')
+    .order('created_at', { ascending: false })
+    .limit(50);
 
-  const { data } = await supabase
-    .from('profiles').select(selectCols)
-    .order('created_at', { ascending: false }).limit(50);
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const players = (data ?? []) as Array<{ id: string; name: string; avatar_url: string | null; created_at: string; player_match_stats?: unknown[] }>;
+  const players = profiles ?? [];
+  const playerIds = players.map(p => p.id);
 
-  // Bulk-fetch match_players.team_name for every listed player so we can
-  // attribute wins correctly in ad-hoc matches (no team UUIDs).
-  const playerIds = (players ?? []).map(p => p.id);
-  const teamByPlayerMatch = new Map<string, string>(); // `${player_id}__${match_id}` → team_name
-  if (playerIds.length > 0) {
-    const { data: mp } = await supabase
+  if (playerIds.length === 0) {
+    return (
+      <div className="max-w-2xl mx-auto flex flex-col gap-5">
+        <div>
+          <h1 className="text-2xl font-bold text-white">Players</h1>
+          <p className="text-sm text-gray-500 mt-0.5">Search by name or mobile, or browse recent players below</p>
+        </div>
+        <PlayerSearchWidget />
+        <div className="text-center py-12 text-gray-600">No players found.</div>
+      </div>
+    );
+  }
+
+  const [{ data: flatStats }, { data: mpRows }, trustScores] = await Promise.all([
+    supabase
+      .from('player_match_stats')
+      .select('player_id, sport, runs_scored, wickets_taken, catches_taken, goals_scored, match_id')
+      .in('player_id', playerIds),
+    supabase
       .from('match_players')
       .select('match_id, player_id, team_name')
-      .in('player_id', playerIds);
-    for (const row of mp ?? []) {
-      teamByPlayerMatch.set(`${row.player_id}__${row.match_id}`, row.team_name);
-    }
+      .in('player_id', playerIds),
+    getTrustScoresForPlayers(playerIds, supabase),
+  ]);
+
+  const statsList = (flatStats ?? []) as FlatPlayerStat[];
+  const matchIds = [...new Set(statsList.map(s => s.match_id))];
+
+  const { data: matchRows } = matchIds.length > 0
+    ? await supabase
+        .from('matches')
+        .select('id, winner_team_id, winner_team_name, team_a_id, team_b_id, team_a_name, team_b_name, confirmation_state')
+        .in('id', matchIds)
+    : { data: [] as MatchMeta[] };
+
+  const matchById = new Map<string, MatchMeta>();
+  for (const m of (matchRows ?? []) as MatchMeta[]) {
+    matchById.set(m.id, m);
+  }
+
+  const teamByPlayerMatch = new Map<string, string>();
+  for (const row of mpRows ?? []) {
+    teamByPlayerMatch.set(`${row.player_id}__${row.match_id}`, row.team_name);
+  }
+
+  const statsByPlayer = new Map<string, FlatPlayerStat[]>();
+  for (const s of statsList) {
+    if (!statsByPlayer.has(s.player_id)) statsByPlayer.set(s.player_id, []);
+    statsByPlayer.get(s.player_id)!.push(s);
   }
 
   return (
@@ -45,26 +99,42 @@ export default async function PlayersPage() {
 
       <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-wider -mb-2">Recent players</h2>
       <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-        {(players ?? []).map((p) => {
-          // Enrich each player's stats with their team_name per match
-          const rawStats = (p.player_match_stats ?? []) as Array<{ match_id: string }>;
+        {players.map((p) => {
+          const rawStats: RawStat[] = (statsByPlayer.get(p.id) ?? []).map((s) => {
+            const m = matchById.get(s.match_id);
+            return {
+              sport: s.sport,
+              runs_scored: s.runs_scored ?? 0,
+              wickets_taken: s.wickets_taken ?? 0,
+              catches_taken: s.catches_taken ?? 0,
+              goals_scored: s.goals_scored ?? 0,
+              match_id: s.match_id,
+              matches: m
+                ? {
+                    winner_team_id: m.winner_team_id,
+                    winner_team_name: m.winner_team_name,
+                    team_a_id: m.team_a_id,
+                    team_b_id: m.team_b_id,
+                    team_a_name: m.team_a_name,
+                    team_b_name: m.team_b_name,
+                    confirmation_state: m.confirmation_state,
+                  }
+                : null,
+            };
+          });
+
           const mpForThisPlayer = rawStats.map(s => ({
             match_id: s.match_id,
             team_name: teamByPlayerMatch.get(`${p.id}__${s.match_id}`) ?? '',
           }));
           const enriched = enrichStatsWithTeamNames(
-            rawStats as unknown as Parameters<typeof enrichStatsWithTeamNames>[0],
+            rawStats,
             mpForThisPlayer,
           );
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          const athleteData = buildAthleteData(p as any, enriched);
-          return <AthleteCardMini key={p.id} athlete={athleteData} />;
+          const athleteData = buildAthleteData(p, enriched);
+          return <AthleteCardMini key={p.id} athlete={athleteData} trustScore={trustScores.get(p.id)} />;
         })}
       </div>
-
-      {players?.length === 0 && (
-        <div className="text-center py-12 text-gray-600">No players found.</div>
-      )}
     </div>
   );
 }

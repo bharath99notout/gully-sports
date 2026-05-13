@@ -1,6 +1,8 @@
 import Link from 'next/link';
 import SportBarsList from './SportBarsList';
 import SportIcon from './SportIcon';
+import { TrustScoreChip } from './TrustScoreBadge';
+import type { PlayerTrustScore } from '@/lib/trustScore';
 import {
   calcCaliber, getPlayerTagline, getPlayerTaglines, getOverallLevel,
   getCaliberColor, getCaliberTierLabel, CALIBER_TIERS,
@@ -71,6 +73,8 @@ interface Props {
    * parent page can show a larger identity hero without duplication.
    */
   hideIdentityBlock?: boolean;
+  /** Optional reliability signal shown inline with the athlete identity. */
+  trustScore?: PlayerTrustScore;
 }
 
 export default function AthleteCard({
@@ -81,6 +85,7 @@ export default function AthleteCard({
   expandableDetails,
   defaultOpenSport,
   hideIdentityBlock = false,
+  trustScore,
 }: Props) {
   const { name, avatarUrl, sportStats, joinedYear } = athlete;
   const tagline = getPlayerTagline(sportStats);
@@ -137,7 +142,10 @@ export default function AthleteCard({
 
             {/* Name + tagline */}
             <div className="mb-1">
-              <h2 className={`font-bold text-white leading-tight ${compact ? 'text-base' : 'text-xl'}`}>{name}</h2>
+              <div className="flex flex-wrap items-center gap-2">
+                <h2 className={`font-bold text-white leading-tight ${compact ? 'text-base' : 'text-xl'}`}>{name}</h2>
+                {trustScore && <TrustScoreChip trustScore={trustScore} />}
+              </div>
               {sportTaglines.length === 0 ? (
                 <p className="text-sm text-gray-500 mt-0.5">{tagline}</p>
               ) : (
@@ -242,7 +250,13 @@ export default function AthleteCard({
 }
 
 // Mini version for player grid
-export function AthleteCardMini({ athlete }: { athlete: AthleteData }) {
+export function AthleteCardMini({
+  athlete,
+  trustScore,
+}: {
+  athlete: AthleteData;
+  trustScore?: PlayerTrustScore;
+}) {
   const overallScore = getOverallLevel(athlete.sportStats);
   const { text: overallColor } = getCaliberColor(overallScore);
   const tagline = getPlayerTagline(athlete.sportStats);
@@ -266,6 +280,11 @@ export function AthleteCardMini({ athlete }: { athlete: AthleteData }) {
 
         <p className="text-sm font-bold text-white truncate">{athlete.name?.trim() || 'Unnamed'}</p>
         <p className="text-xs text-gray-600 mt-0.5 truncate">{tagline}</p>
+        {trustScore && (
+          <div className="mt-2">
+            <TrustScoreChip trustScore={trustScore} />
+          </div>
+        )}
 
         <div className="flex flex-col gap-1.5 mt-3">
           {sportMeta.map(({ key }) => {

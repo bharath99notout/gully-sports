@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { ArrowLeft } from 'lucide-react';
 import AppLogoMark from '@/components/AppLogoMark';
 import AthleteCard from '@/components/AthleteCard';
+import TrustScoreBadge from '@/components/TrustScoreBadge';
 import ShareButton from '@/components/ShareButton';
 import FeedMatchCard from '@/components/FeedMatchCard';
 import { buildAthleteData, enrichStatsWithTeamNames } from '@/lib/athleteData';
@@ -15,6 +16,7 @@ import RacquetStatsPanel from '@/components/RacquetStatsPanel';
 import FoosballStatsPanel from '@/components/FoosballStatsPanel';
 import { calcCaliber, getCaliberLabel, getPlayerTaglines, SportKey } from '@/lib/caliber';
 import { headers } from 'next/headers';
+import { getTrustScoreForPlayer } from '@/lib/trustScoreServer';
 
 function hueFromPlayerId(playerId: string): number {
   let h = 0;
@@ -78,7 +80,7 @@ export default async function PublicProfilePage({ params }: Props) {
 
   const { data: { user } } = await supabase.auth.getUser();
 
-  const [{ data: profile }, { data: allStats }, { data: rawMatches }, { data: myMatchPlayers }] = await Promise.all([
+  const [{ data: profile }, { data: allStats }, { data: rawMatches }, { data: myMatchPlayers }, trustScore] = await Promise.all([
     supabase.from('profiles').select('id, name, avatar_url, created_at').eq('id', id).single(),
     supabase
       .from('player_match_stats')
@@ -99,6 +101,7 @@ export default async function PublicProfilePage({ params }: Props) {
       .from('match_players')
       .select('match_id, team_name')
       .eq('player_id', id),
+    getTrustScoreForPlayer(id, supabase),
   ]);
 
   if (!profile) notFound();
@@ -307,6 +310,8 @@ export default async function PublicProfilePage({ params }: Props) {
           </div>
         </section>
 
+        {isOwnProfile && <TrustScoreBadge trustScore={trustScore} />}
+
         <AthleteCard athlete={athleteData} expandableDetails={expandableDetails} hideIdentityBlock />
 
         {feedMatches.length > 0 && (
@@ -321,6 +326,8 @@ export default async function PublicProfilePage({ params }: Props) {
             </div>
           </div>
         )}
+
+        {!isOwnProfile && <TrustScoreBadge trustScore={trustScore} />}
 
         {/* CTA for anonymous visitors */}
         {!user && (
