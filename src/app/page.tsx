@@ -1,6 +1,15 @@
 import Link from 'next/link';
 import { Zap, Users, BarChart3, History } from 'lucide-react';
 import AppLogoMark from '@/components/AppLogoMark';
+import SportIcon from '@/components/SportIcon';
+
+const LANDING_SPORTS = [
+  { sport: 'cricket', label: 'Cricket' },
+  { sport: 'football', label: 'Football' },
+  { sport: 'badminton', label: 'Badminton' },
+  { sport: 'table_tennis', label: 'Table tennis' },
+  { sport: 'foosball', label: 'Foosball' },
+] as const;
 
 export default function LandingPage() {
   return (
@@ -13,8 +22,8 @@ export default function LandingPage() {
         <p className="text-xl text-gray-300 mb-3 max-w-md">
           Score your local matches in seconds.
         </p>
-        <p className="text-gray-500 mb-10 max-w-sm">
-          Cricket, Football, Badminton — track live scores, player stats, and match history.
+        <p className="text-gray-500 mb-10 max-w-md px-1">
+          Cricket, football, badminton, table tennis, and foosball — track live scores, player stats, and match history.
         </p>
 
         <div className="flex gap-3">
@@ -46,10 +55,12 @@ export default function LandingPage() {
           ))}
         </div>
 
-        <div className="flex gap-4 mt-8 text-2xl">
-          <span title="Cricket">🏏</span>
-          <span title="Football">⚽</span>
-          <span title="Badminton">🏸</span>
+        <div className="flex flex-wrap justify-center gap-4 mt-8 text-2xl items-center">
+          {LANDING_SPORTS.map(({ sport, label }) => (
+            <span key={sport} className="inline-flex leading-none" role="img" aria-label={label}>
+              <SportIcon sport={sport} className="text-2xl" />
+            </span>
+          ))}
         </div>
       </div>
     </div>

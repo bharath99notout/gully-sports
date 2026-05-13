@@ -1,4 +1,4 @@
-import { createClient } from '@/lib/supabase/server';
+import { getServerAuth } from '@/lib/supabase/server';
 import { notFound } from 'next/navigation';
 import Link from 'next/link';
 import { ShieldCheck, Inbox } from 'lucide-react';
@@ -23,8 +23,7 @@ export default async function AdminMatchQueuePage({
   searchParams: Promise<{ deleted?: string }>;
 }) {
   const { deleted } = await searchParams;
-  const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const { supabase, user } = await getServerAuth();
   if (!user) notFound();
 
   const { data: me } = await supabase

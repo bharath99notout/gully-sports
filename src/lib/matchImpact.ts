@@ -115,20 +115,55 @@ export function buildMatchPlayerImpactRows(
       : [...matchPlayers.map(p => p.player_id), ...byPlayer.keys()],
   );
 
-  let mvpIdCricket = '';
-  if (sport === 'cricket' && rosterIds.size) {
-    let bestSc = -1;
-    for (const pid of rosterIds) {
-      const row = byPlayer.get(pid);
-      const sc = row
-        ? cricketImpactScore(row.runs_scored ?? 0, row.wickets_taken ?? 0, row.catches_taken ?? 0)
-        : 0;
-      if (sc > bestSc) {
-        bestSc = sc;
-        mvpIdCricket = pid;
+  // ── MVP resolution (one rule per sport, all set into `mvpIds`) ────────────
+  //
+  //   Cricket  — highest impact score (runs + 20×wkts + 10×catches), must be > 0.
+  //   Football — top goal scorer (goals > 0); tie → player on winning team.
+  //   Racquet/Foosball singles — the lone winner on the winning team.
+  //   Racquet/Foosball doubles — both players on the winning team (no
+  //     per-player attribution exists, so the team-effort award goes to both).
+  //   If the match has no winner / no qualifying contribution, no MVP fires.
+  const mvpIds = new Set<string>();
+  if (rosterIds.size) {
+    if (sport === 'cricket') {
+      let bestSc = -1;
+      let bestId = '';
+      for (const pid of rosterIds) {
+        const row = byPlayer.get(pid);
+        const sc = row
+          ? cricketImpactScore(row.runs_scored ?? 0, row.wickets_taken ?? 0, row.catches_taken ?? 0)
+          : 0;
+        if (sc > bestSc) {
+          bestSc = sc;
+          bestId = pid;
+        }
+      }
+      if (bestSc > 0 && bestId) mvpIds.add(bestId);
+    } else if (sport === 'football') {
+      // Highest goals; if multiple, prefer the one whose team won.
+      let bestG = 0;
+      const candidates: string[] = [];
+      for (const pid of rosterIds) {
+        const row = byPlayer.get(pid);
+        const g = row?.goals_scored ?? 0;
+        if (g > bestG) { bestG = g; candidates.length = 0; candidates.push(pid); }
+        else if (g === bestG && g > 0) candidates.push(pid);
+      }
+      if (bestG > 0) {
+        const winnerSidePick = candidates.find(pid => {
+          const team = teamNameForPlayer(pid, matchPlayers, byPlayer.get(pid)?.team_id, match);
+          return winner && team === winner;
+        });
+        mvpIds.add(winnerSidePick ?? candidates[0]);
+      }
+    } else if (winner) {
+      // Racquet (singles + doubles) + foosball: MVP = every player on the
+      // winning team. For singles that's a single player; for doubles it's
+      // both teammates. Without a winner we award nothing.
+      for (const mp of matchPlayers) {
+        if (mp.team_name === winner) mvpIds.add(mp.player_id);
       }
     }
-    if (bestSc <= 0) mvpIdCricket = '';
   }
 
   const rows: MatchPlayerImpactRow[] = [];
@@ -171,12 +206,12 @@ export function buildMatchPlayerImpactRows(
         catches_taken: ct,
         goals_scored: 0,
         won,
-        was_mvp: pid === mvpIdCricket && cricketImpactScore(runs, wk, ct) > 0,
+        was_mvp: mvpIds.has(pid),
       };
     } else if (sport === 'football' && r) {
       const g = r.goals_scored ?? 0;
       stat_lines = [`${g} goals`];
-      pm = { runs_scored: 0, wickets_taken: 0, catches_taken: 0, goals_scored: g, won, was_mvp: false };
+      pm = { runs_scored: 0, wickets_taken: 0, catches_taken: 0, goals_scored: g, won, was_mvp: mvpIds.has(pid) };
     } else if (sport === 'badminton' || sport === 'table_tennis') {
       const { sets_won, clean_sweeps } = racquetSetBreakdown(team_name, scores);
       const pts = r?.points_won ?? 0;
@@ -192,7 +227,7 @@ export function buildMatchPlayerImpactRows(
         catches_taken: 0,
         goals_scored: 0,
         won,
-        was_mvp: false,
+        was_mvp: mvpIds.has(pid),
         sets_won,
         clean_sweeps,
       };
@@ -207,7 +242,7 @@ export function buildMatchPlayerImpactRows(
         catches_taken: 0,
         goals_scored: 0,
         won,
-        was_mvp: false,
+        was_mvp: mvpIds.has(pid),
       };
     } else if (!r) {
       stat_lines = ['No stat row yet'];

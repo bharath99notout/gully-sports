@@ -87,8 +87,8 @@ function SignupForm() {
         return;
       }
       setStep('otp');
-      setOtp('');
-      prevOtpLenRef.current = 0;
+      setOtp(expectedLast4Otp(phone10));
+      prevOtpLenRef.current = SMS_OTP_LENGTH;
       setLoading(false);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Network error');

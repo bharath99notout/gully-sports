@@ -1,5 +1,6 @@
 import 'server-only';
-import { createClient } from './supabase/server';
+import { cache } from 'react';
+import { createClient, getServerAuth } from './supabase/server';
 import type { SportEvent, SportType } from '@/types';
 
 export type EventListRow = Pick<
@@ -46,7 +47,7 @@ export async function listEvents(opts: ListEventsOpts = {}): Promise<EventListRo
   // when the user has zero events.
   let myEventIds: string[] | null = null;
   if (scope === 'mine') {
-    const { data: { user } } = await supabase.auth.getUser();
+    const { user } = await getServerAuth();
     if (!user) return [];
 
     const [hostRes, rsvpRes] = await Promise.all([
@@ -110,7 +111,7 @@ export async function listEvents(opts: ListEventsOpts = {}): Promise<EventListRo
   return events.map(e => ({ ...e, going_count: goingByEvent.get(e.id) ?? 0 }));
 }
 
-export async function getEvent(id: string): Promise<SportEvent | null> {
+export const getEvent = cache(async (id: string): Promise<SportEvent | null> => {
   const supabase = await createClient();
   const { data } = await supabase
     .from('events')
@@ -118,4 +119,4 @@ export async function getEvent(id: string): Promise<SportEvent | null> {
     .eq('id', id)
     .maybeSingle();
   return (data as SportEvent | null) ?? null;
-}
+});

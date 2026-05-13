@@ -1,21 +1,18 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
+import { headers } from 'next/headers';
 import { ArrowLeft, MapPin, Clock, Users } from 'lucide-react';
-import { createClient } from '@/lib/supabase/server';
+import { createClient, getServerAuth } from '@/lib/supabase/server';
 import { getPickupById, getPickupResponses, countMutualMatches } from '@/lib/pickupsServer';
+import { formatEventDateTime } from '@/lib/formatDateTime';
+import { buildPickupWaContextLine } from '@/lib/pickupShareText';
 import SportIcon from '@/components/SportIcon';
 import PickupActions from './PickupActions';
 import HostApprovalList from './HostApprovalList';
+import PickupShareWhatsApp from './PickupShareWhatsApp';
 
 interface Props {
   params: Promise<{ id: string }>;
-}
-
-function fmtTime(iso: string): string {
-  return new Date(iso).toLocaleString('en-IN', {
-    weekday: 'short', day: 'numeric', month: 'short',
-    hour: 'numeric', minute: '2-digit',
-  });
 }
 
 function relativeTime(iso: string): string {
@@ -29,8 +26,7 @@ function relativeTime(iso: string): string {
 
 export default async function PickupDetailPage({ params }: Props) {
   const { id } = await params;
-  const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const { supabase, user } = await getServerAuth();
   if (!user) {
     return (
       <div className="max-w-xl mx-auto px-4 py-10 text-center">
@@ -60,6 +56,14 @@ export default async function PickupDetailPage({ params }: Props) {
 
   const mapUrl = `https://maps.google.com/?q=${pickup.ground_lat},${pickup.ground_lng}`;
 
+  const hdrs = await headers();
+  const reqHost = hdrs.get('host') ?? '';
+  const proto = hdrs.get('x-forwarded-proto') ?? (reqHost.includes('localhost') ? 'http' : 'https');
+  const origin = reqHost
+    ? `${proto}://${reqHost}`
+    : (process.env.NEXT_PUBLIC_SITE_URL ?? '').replace(/\/$/, '');
+  const appPickupUrl = origin ? `${origin}/pickups/${id}` : `/pickups/${id}`;
+
   const sportLabel =
     pickup.sport === 'table_tennis' ? 'Table Tennis'
     : pickup.sport.charAt(0).toUpperCase() + pickup.sport.slice(1);
@@ -70,6 +74,21 @@ export default async function PickupDetailPage({ params }: Props) {
     accepted.some(r => r.joiner_id === user.id)
       ? await fetchProfilePhone(pickup.host_id)
       : null;
+
+  const hostDigits = hostPhone ? hostPhone.replace(/\D/g, '').slice(-10) : '';
+  const joinerToHostWaText = buildPickupWaContextLine({
+    sportLabel,
+    groundName: pickup.ground_name,
+    startIso: pickup.start_time,
+    role: 'joiner',
+    counterpartName: pickup.host.name,
+  });
+  const waHostHref =
+    hostPhone && hostDigits.length === 10
+      ? `https://wa.me/91${hostDigits}?text=${encodeURIComponent(joinerToHostWaText)}`
+      : null;
+
+  const showShareInvite = pickup.status !== 'cancelled' && pickup.status !== 'expired';
 
   return (
     <div className="max-w-xl mx-auto px-4 py-6">
@@ -109,7 +128,7 @@ export default async function PickupDetailPage({ params }: Props) {
           <div className="grid grid-cols-2 gap-3">
             <Field icon={<MapPin size={13} />} label="Ground" value={pickup.ground_name}
               href={mapUrl} />
-            <Field icon={<Clock size={13} />} label="Starts" value={`${fmtTime(pickup.start_time)} · ${relativeTime(pickup.start_time)}`} />
+            <Field icon={<Clock size={13} />} label="Starts" value={`${formatEventDateTime(pickup.start_time)} · ${relativeTime(pickup.start_time)}`} />
           </div>
 
           <div className="grid grid-cols-2 gap-3">
@@ -126,9 +145,9 @@ export default async function PickupDetailPage({ params }: Props) {
           )}
 
           {/* Accepted joiner -> show host's phone for WhatsApp handoff */}
-          {hostPhone && (
+          {waHostHref && (
             <a
-              href={`https://wa.me/91${hostPhone.replace(/\D/g, '').slice(-10)}`}
+              href={waHostHref}
               target="_blank" rel="noreferrer"
               className="rounded-xl border border-emerald-700 bg-emerald-950/40 px-3 py-2.5 text-sm text-emerald-300 font-semibold text-center hover:bg-emerald-900/60"
             >
@@ -136,6 +155,25 @@ export default async function PickupDetailPage({ params }: Props) {
             </a>
           )}
         </div>
+
+        {showShareInvite && (
+          <div className="px-4 pb-3">
+            <PickupShareWhatsApp
+              fields={{
+                sportLabel,
+                hostName: pickup.host.name,
+                startIso: pickup.start_time,
+                groundName: pickup.ground_name,
+                slotsTotal: pickup.slots_total,
+                acceptedCount: accepted.length,
+                format: pickup.format,
+                notes: pickup.notes,
+                mapUrl,
+                appPickupUrl,
+              }}
+            />
+          </div>
+        )}
 
         {/* Actions */}
         <div className="px-4 pb-4">
@@ -157,6 +195,8 @@ export default async function PickupDetailPage({ params }: Props) {
             requestId={pickup.id}
             slotsTotal={pickup.slots_total}
             startTimeIso={pickup.start_time}
+            sportLabel={sportLabel}
+            groundName={pickup.ground_name}
             mutualByJoinerId={mutualByJoinerId}
           />
         </div>

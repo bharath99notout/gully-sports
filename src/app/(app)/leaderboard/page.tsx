@@ -1,26 +1,6 @@
-import { createClient } from '@/lib/supabase/server';
+import { getLeaderboardSnapshotCached, type LeaderboardRawStat } from '@/lib/leaderboardFetchCached';
 import LeaderboardClient, { LeaderboardEntry } from './LeaderboardClient';
 import { calcCaliber, calcSportPoints, SportKey, SportStat, PerMatchStat } from '@/lib/caliber';
-
-interface RawStat {
-  player_id: string;
-  sport: SportKey;
-  runs_scored: number | null;
-  wickets_taken: number | null;
-  catches_taken: number | null;
-  goals_scored: number | null;
-  match_id: string;
-  profiles: { id: string; name: string; avatar_url: string | null } | null;
-  matches: {
-    winner_team_id: string | null;
-    winner_team_name: string | null;
-    team_a_id: string | null;
-    team_b_id: string | null;
-    team_a_name: string;
-    team_b_name: string;
-    confirmation_state?: string | null;
-  } | null;
-}
 
 interface SetRow {
   match_id: string;
@@ -29,19 +9,8 @@ interface SetRow {
 }
 
 export default async function LeaderboardPage() {
-  const supabase = await createClient();
-
-  const { data } = await supabase
-    .from('player_match_stats')
-    .select(`
-      player_id, sport, runs_scored, wickets_taken, catches_taken, goals_scored, match_id,
-      profiles(id, name, avatar_url),
-      matches(winner_team_id, winner_team_name, team_a_id, team_b_id, team_a_name, team_b_name, confirmation_state)
-    `)
-    .returns<RawStat[]>();
-
-  // Phase 1: leaderboard only counts fully confirmed matches (1h auto-confirm OK).
-  const raw = (data ?? []).filter(r => r.matches?.confirmation_state === 'confirmed');
+  const snap = await getLeaderboardSnapshotCached();
+  const raw = snap.stats as LeaderboardRawStat[];
   const matchIds = Array.from(new Set(raw.map(r => r.match_id)));
 
   // Map: `${match_id}__${player_id}` → team_name (to attribute wins)
@@ -50,18 +19,14 @@ export default async function LeaderboardPage() {
    *  match → singles; anything else → doubles. */
   const setSportFormatByMatch = new Map<string, 'singles' | 'doubles'>();
   if (matchIds.length > 0) {
-    const { data: mp } = await supabase
-      .from('match_players')
-      .select('match_id, player_id, team_name')
-      .in('match_id', matchIds);
-    for (const row of mp ?? []) {
+    for (const row of snap.matchPlayers) {
       playerTeamMap.set(`${row.match_id}__${row.player_id}`, row.team_name);
     }
     const setSportMatchIds = new Set(
       raw.filter(r => r.sport === 'badminton' || r.sport === 'table_tennis' || r.sport === 'foosball').map(r => r.match_id),
     );
     const playersPerTeam = new Map<string, Map<string, number>>(); // match_id → team_name → count
-    for (const row of mp ?? []) {
+    for (const row of snap.matchPlayers) {
       if (!setSportMatchIds.has(row.match_id)) continue;
       if (!playersPerTeam.has(row.match_id)) playersPerTeam.set(row.match_id, new Map());
       const tm = playersPerTeam.get(row.match_id)!;
@@ -79,11 +44,7 @@ export default async function LeaderboardPage() {
   const setsMap = new Map<string, number[]>();
   const matchTeamNames = new Map<string, [string, string]>(); // match_id → [teamA, teamB]
   if (matchIds.length > 0) {
-    const { data: ms } = await supabase
-      .from('match_scores')
-      .select('match_id, team_name, sets')
-      .in('match_id', matchIds)
-      .returns<SetRow[]>();
+    const ms = snap.matchScores as SetRow[];
     for (const row of ms ?? []) {
       if (row.sets?.length) setsMap.set(`${row.match_id}__${row.team_name}`, row.sets);
     }
@@ -113,7 +74,7 @@ export default async function LeaderboardPage() {
   const aggFoosballSingles = new Map<string, AggRow>();
   const aggFoosballDoubles = new Map<string, AggRow>();
 
-  function ensureAggRow(map: Map<string, AggRow>, key: string, r: RawStat): AggRow {
+  function ensureAggRow(map: Map<string, AggRow>, key: string, r: LeaderboardRawStat): AggRow {
     if (!map.has(key)) {
       map.set(key, {
         player_id: r.player_id,

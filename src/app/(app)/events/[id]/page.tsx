@@ -2,7 +2,7 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { ArrowLeft, CalendarDays, MapPin, Users, Hourglass, X as XIcon, Flame } from 'lucide-react';
 import { getEvent } from '@/lib/eventsServer';
-import { createClient } from '@/lib/supabase/server';
+import { getServerAuth } from '@/lib/supabase/server';
 import EventActions from './EventActions';
 import GuestRsvpForm from './GuestRsvpForm';
 import CostSplitSection from './CostSplitSection';
@@ -37,8 +37,7 @@ export default async function EventDetailPage({
   const event = await getEvent(id);
   if (!event) notFound();
 
-  const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const { supabase, user } = await getServerAuth();
   const isHost = !!user && user.id === event.host_id;
 
   const [

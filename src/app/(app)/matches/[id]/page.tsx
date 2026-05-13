@@ -1,4 +1,4 @@
-import { createClient } from '@/lib/supabase/server';
+import { getServerAuth } from '@/lib/supabase/server';
 import { notFound } from 'next/navigation';
 import dynamic from 'next/dynamic';
 import SportBadge from '@/components/SportBadge';
@@ -34,7 +34,7 @@ export default async function MatchDetailPage({ params, searchParams }: Props) {
   const { id } = await params;
   const { edit: editFlag } = await searchParams;
   const inEditMode = editFlag === '1';
-  const supabase = await createClient();
+  const { supabase, user } = await getServerAuth();
 
   // Promote any matches whose 1h auto-confirm window expired. Cheap (rate-
   // limited + partial index) and runs naturally as users browse.
@@ -48,7 +48,6 @@ export default async function MatchDetailPage({ params, searchParams }: Props) {
 
   if (!match) notFound();
 
-  const { data: { user } } = await supabase.auth.getUser();
   const scorerId: string | null = match.scored_by ?? match.created_by ?? null;
   const viewerIsScorer = !!user && user.id === scorerId;
   const confirmationState: ConfirmationState =
@@ -180,6 +179,17 @@ export default async function MatchDetailPage({ params, searchParams }: Props) {
     ]));
   }
 
+  // Football reads only goals_scored — separate map keeps the cricket-stats
+  // type from leaking into FootballScorer's narrower prop shape.
+  let footballPlayerStats: Record<string, { goals_scored: number }> = {};
+  if (match.sport === 'football') {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    footballPlayerStats = Object.fromEntries((allPms ?? []).map((s: any) => [
+      s.player_id,
+      { goals_scored: s.goals_scored ?? 0 },
+    ]));
+  }
+
   const impactRows = match.status !== 'upcoming'
     ? buildMatchPlayerImpactRows(
         match.sport as SportKey,
@@ -306,6 +316,8 @@ export default async function MatchDetailPage({ params, searchParams }: Props) {
             canEdit={canEditScoresForUi}
             allowDisputeRecheck={allowDisputeRecheck}
             adminOverrideCompleted={adminOverrideCompleted}
+            matchPlayers={matchPlayers}
+            playerStats={footballPlayerStats}
           />
         )}
         {match.sport === 'badminton' && (

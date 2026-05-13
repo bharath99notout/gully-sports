@@ -1,7 +1,7 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { Trophy } from 'lucide-react';
-import { createClient } from '@/lib/supabase/server';
+import { getServerAuth } from '@/lib/supabase/server';
 import {
   aggregatePlayers,
   awardsSnapshot,
@@ -18,7 +18,7 @@ import TournamentTabsClient from './TournamentTabsClient';
 
 export default async function TournamentDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const supabase = await createClient();
+  const { supabase, user } = await getServerAuth();
 
   const { data: tournament } = await supabase
     .from('tournaments')
@@ -28,7 +28,6 @@ export default async function TournamentDetailPage({ params }: { params: Promise
 
   if (!tournament) notFound();
 
-  const { data: { user } } = await supabase.auth.getUser();
   const isOrganizer = user?.id === tournament.created_by;
 
   const [{ data: teamRows }, { data: rosterRowsRaw }, { data: matchRows }, { data: awardRowsRaw }] = await Promise.all([

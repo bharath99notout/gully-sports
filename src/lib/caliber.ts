@@ -29,27 +29,42 @@ export interface SportStat {
 //   85–94   = Champion
 //   95–100  = Legend
 
+// Top-tier match-count floors. The raw perf+exp formula caps experience
+// credit at 8 matches, so a 7-match streak with a 100% win rate hits Legend
+// instantly — which feels cheap. These floors gate Champion / Legend on
+// "you've actually played enough to prove this is your level".
+const MIN_MATCHES_FOR_CHAMPION = 12;
+const MIN_MATCHES_FOR_LEGEND   = 25;
+
+/** Caps a raw caliber score against the match-count floors. */
+function applyTierFloor(raw: number, matches: number): number {
+  if (matches < MIN_MATCHES_FOR_LEGEND   && raw >= 95) return Math.min(raw, 94);
+  if (matches < MIN_MATCHES_FOR_CHAMPION && raw >= 85) return Math.min(raw, 84);
+  return raw;
+}
+
 export function calcCaliber(sport: SportKey, s: SportStat): number {
   if (s.matches === 0) return 0;
   const exp = Math.min(1, s.matches / 8);
 
+  let raw: number;
   if (sport === 'cricket') {
     const avg = s.runs / s.matches;
     const wpm = s.wickets / s.matches;
     const winRate = s.wins / s.matches;
     const perf = (Math.min(avg, 60) / 60) * 0.45 + (Math.min(wpm, 3) / 3) * 0.35 + winRate * 0.2;
-    return Math.min(100, Math.round((exp * 0.2 + perf * 0.8) * 100));
-  }
-  if (sport === 'football') {
+    raw = Math.round((exp * 0.2 + perf * 0.8) * 100);
+  } else if (sport === 'football') {
     const gpm = s.goals / s.matches;
     const winRate = s.wins / s.matches;
     const perf = (Math.min(gpm, 2) / 2) * 0.6 + winRate * 0.4;
-    return Math.min(100, Math.round((exp * 0.2 + perf * 0.8) * 100));
+    raw = Math.round((exp * 0.2 + perf * 0.8) * 100);
+  } else {
+    // Badminton + Table Tennis + Foosball — win-rate only.
+    raw = Math.round((exp * 0.2 + (s.wins / s.matches) * 0.8) * 100);
   }
-  // Badminton + Table Tennis + Foosball — win-rate only. We don't track
-  // per-match goal counts for foosball (host just declares the winner)
-  // so the same exp+winRate formula applies.
-  return Math.min(100, Math.round((exp * 0.2 + (s.wins / s.matches) * 0.8) * 100));
+
+  return Math.min(100, applyTierFloor(raw, s.matches));
 }
 
 export function getCaliberColor(score: number) {
@@ -246,37 +261,51 @@ export interface PerMatchStat {
   won?:          boolean;
 }
 
+/**
+ * Career points (Option A — normalized 2026-05).
+ *
+ * Floor (every sport):                   +5  played
+ *                                        +25 won
+ *                                        +25 MVP
+ *
+ * Sport-specific accomplishment bonuses ride on top so each sport's
+ * distinguishing moments still feel special, but the *floor* is the same
+ * across every sport — same effort = same baseline reward.
+ *
+ *   Cricket:    +1/run, +10/wkt, +3/catch
+ *               50 runs → +15, 100 runs → +40
+ *               3 wkts  → +15, 5 wkts   → +30
+ *   Football:   +10/goal
+ *               3 goals (hat-trick) → +20
+ *   Racquet:    +3/set won
+ *               clean sweep → +10 (set won 21-0 / 11-0)
+ *   Foosball:   floor only — no per-game stat tracked
+ */
 export function calcSportPoints(sport: SportKey, matches: PerMatchStat[]): number {
   let pts = 0;
   for (const m of matches) {
+    // Universal floor.
+    pts += 5;                       // played
+    if (m.won)     pts += 25;       // won
+    if (m.was_mvp) pts += 25;       // MVP
+
+    // Sport-specific accomplishment bonuses.
     if (sport === 'cricket') {
-      pts += 1; // played
-      if (m.won) pts += 15;
       pts += m.runs_scored;
-      pts += m.wickets_taken * 20;
-      pts += m.catches_taken * 5;
-      if (m.runs_scored >= 100)      pts += 75;
-      else if (m.runs_scored >= 50)  pts += 25;
-      if (m.wickets_taken >= 5)      pts += 40;
+      pts += m.wickets_taken * 10;
+      pts += m.catches_taken * 3;
+      if (m.runs_scored >= 100)      pts += 40;
+      else if (m.runs_scored >= 50)  pts += 15;
+      if (m.wickets_taken >= 5)      pts += 30;
       else if (m.wickets_taken >= 3) pts += 15;
-      if (m.was_mvp) pts += 30;
     } else if (sport === 'football') {
-      pts += 2;
-      if (m.won) pts += 20;
-      pts += m.goals_scored * 15;
-      if (m.goals_scored >= 3) pts += 30;
-      if (m.was_mvp) pts += 25;
+      pts += m.goals_scored * 10;
+      if (m.goals_scored >= 3) pts += 20;
     } else if (sport === 'badminton' || sport === 'table_tennis') {
-      pts += 5;
-      if (m.won) pts += 25;
-      pts += (m.sets_won ?? 0) * 5;
-      pts += (m.clean_sweeps ?? 0) * 15;
-    } else if (sport === 'foosball') {
-      // Foosball doesn't track set scoring — points come from playing
-      // and winning only. No sets_won / clean_sweep bonus.
-      pts += 5;
-      if (m.won) pts += 25;
+      pts += (m.sets_won ?? 0) * 3;
+      pts += (m.clean_sweeps ?? 0) * 10;
     }
+    // foosball: floor only — no extra stat to bonus on
   }
   return pts;
 }

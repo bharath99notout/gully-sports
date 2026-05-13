@@ -1,6 +1,6 @@
-import { createClient } from '@/lib/supabase/server';
+import { createClient, getServerAuth } from '@/lib/supabase/server';
 import Link from 'next/link';
-import { Plus, Search } from 'lucide-react';
+import { Plus } from 'lucide-react';
 import { headers } from 'next/headers';
 import AthleteCard from '@/components/AthleteCard';
 import AvatarUpload from '@/components/AvatarUpload';
@@ -22,8 +22,7 @@ import TrophyBanner, { Achievement } from '@/components/TrophyBanner';
 import { isMatchExcludedFromStats, type ConfirmationState } from '@/lib/matchConfirmation';
 
 export default async function DashboardPage() {
-  const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const { supabase, user } = await getServerAuth();
 
   // Run the auto-confirm sweep on every dashboard load (rate-limited to 1/min)
   // so the 1h auto-confirm window doesn't depend on people viewing match
@@ -141,8 +140,17 @@ export default async function DashboardPage() {
     if ((stat.catches_taken ?? 0) >= 3)
       achievements.push({ id: `catches_${mid}`, emoji: '🧤', title: 'Catch Master!', subtitle: `${stat.catches_taken} catches`, color: 'emerald' });
 
-    if ((stat.goals_scored ?? 0) >= 5)
-      achievements.push({ id: `goals_${mid}`, emoji: '⚽', title: 'Goal Fest!', subtitle: `${stat.goals_scored} goals`, color: 'blue' });
+    // Football goal trophies — graduated tiers so every scorer gets seen.
+    // 1 → Goal Scorer, 2 → Brace, 3+ → Hat-Trick Hero, 5+ → Goal Fest.
+    const goals = stat.goals_scored ?? 0;
+    if (goals >= 5)
+      achievements.push({ id: `goals_${mid}`, emoji: '🔥', title: 'Goal Fest!', subtitle: `${goals} goals`, color: 'gold' });
+    else if (goals >= 3)
+      achievements.push({ id: `hattrick_${mid}`, emoji: '⚽⚽⚽', title: 'Hat-Trick Hero!', subtitle: `${goals} goals`, color: 'red' });
+    else if (goals === 2)
+      achievements.push({ id: `brace_${mid}`, emoji: '⚽⚽', title: 'Brace!', subtitle: '2 goals', color: 'emerald' });
+    else if (goals === 1)
+      achievements.push({ id: `goal_${mid}`, emoji: '⚽', title: 'Goal Scored!', subtitle: '1 goal', color: 'blue' });
   }
 
   // MVP: highest impact player in each completed match
@@ -216,21 +224,6 @@ export default async function DashboardPage() {
 
       {/* Trophy notifications */}
       {achievements.length > 0 && <TrophyBanner achievements={achievements} />}
-
-      {/* Find players lives under /players — keep home focused on your profile */}
-      <Link
-        href="/players"
-        className="flex items-center gap-3 bg-gray-900 border border-gray-800 hover:border-emerald-800/60 rounded-xl px-4 py-3 transition-colors group"
-      >
-        <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-emerald-950/50 text-emerald-400 border border-emerald-900/40 group-hover:bg-emerald-900/30">
-          <Search size={18} />
-        </span>
-        <div className="flex-1 min-w-0 text-left">
-          <p className="text-sm font-semibold text-white">Find players</p>
-          <p className="text-xs text-gray-500 truncate">Search by name or mobile on the Players page</p>
-        </div>
-        <span className="text-xs font-medium text-emerald-400 shrink-0">Open →</span>
-      </Link>
 
       {/* Athlete card hero — sport bars are tap-to-expand. Start collapsed
           on the dashboard so the rest of the page (live, recent, etc.) stays

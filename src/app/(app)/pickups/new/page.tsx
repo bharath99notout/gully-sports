@@ -1,5 +1,5 @@
 import { redirect } from 'next/navigation';
-import { createClient } from '@/lib/supabase/server';
+import { getServerAuth } from '@/lib/supabase/server';
 import NewPickupForm from './NewPickupForm';
 
 export const metadata = {
@@ -8,8 +8,7 @@ export const metadata = {
 };
 
 export default async function NewPickupPage() {
-  const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const { user } = await getServerAuth();
   if (!user) redirect('/auth/login?next=/pickups/new');
   return <NewPickupForm />;
 }

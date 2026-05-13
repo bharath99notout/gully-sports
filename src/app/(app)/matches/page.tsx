@@ -1,4 +1,4 @@
-import { createClient } from '@/lib/supabase/server';
+import { getServerAuth } from '@/lib/supabase/server';
 import Link from 'next/link';
 import { Plus, Calendar } from 'lucide-react';
 import Card from '@/components/ui/Card';
@@ -25,8 +25,7 @@ export default async function MatchesPage({
   searchParams: Promise<{ sport?: string; status?: string; deleted?: string }>;
 }) {
   const { sport, status, deleted } = await searchParams;
-  const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const { supabase, user } = await getServerAuth();
 
   // Get all match IDs where user is a player, added to match, or created the match
   const [{ data: statsMatches }, { data: playerMatches }, { data: createdMatches }] = await Promise.all([

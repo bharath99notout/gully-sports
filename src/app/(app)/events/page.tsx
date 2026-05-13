@@ -1,7 +1,7 @@
 import Link from 'next/link';
 import { CalendarDays, MapPin, Plus, Users, Flame } from 'lucide-react';
 import { listEvents, type EventListRow, type ListEventsOpts } from '@/lib/eventsServer';
-import { createClient } from '@/lib/supabase/server';
+import { getServerAuth } from '@/lib/supabase/server';
 import { formatEventDateTime } from '@/lib/formatDateTime';
 import SportIcon from '@/components/SportIcon';
 import type { SportType } from '@/types';
@@ -55,10 +55,8 @@ export default async function EventsPage({
   const { sport, when, recruiting, scope } = parseFilters(sp);
 
   const opts: ListEventsOpts = { sport, when, recruiting, scope, limit: 50 };
+  const { user } = await getServerAuth();
   const events = await listEvents(opts);
-
-  const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
 
   return (
     <div className="max-w-2xl mx-auto flex flex-col gap-5">

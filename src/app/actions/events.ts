@@ -1,7 +1,9 @@
 'use server';
 
 import { revalidatePath } from 'next/cache';
-import { createClient } from '@/lib/supabase/server';
+import type { SupabaseClient } from '@supabase/supabase-js';
+import { getServerAuth } from '@/lib/supabase/server';
+import { CACHE_TAG_EVENTS_FEED, cacheTagEvent, revalidateCacheTag } from '@/lib/cache/tags';
 import type { SportType, EventStatus } from '@/types';
 
 /**
@@ -18,8 +20,7 @@ type ActionResult<T = void> =
   | { ok: false; error: string };
 
 async function requireUser() {
-  const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const { supabase, user } = await getServerAuth();
   if (!user) return { supabase, user: null as null, error: 'Sign in to continue' };
   return { supabase, user, error: null };
 }
@@ -71,6 +72,7 @@ export async function createEvent(input: CreateEventInput): Promise<ActionResult
   if (insertErr || !data) return { ok: false, error: insertErr?.message ?? 'Could not create event' };
 
   revalidatePath('/events');
+  revalidateCacheTag(CACHE_TAG_EVENTS_FEED);
   return { ok: true, data: { id: data.id } };
 }
 
@@ -104,7 +106,9 @@ export async function updateEvent(eventId: string, patch: UpdateEventInput): Pro
   if (updErr) return { ok: false, error: updErr.message };
 
   revalidatePath('/events');
+  revalidateCacheTag(CACHE_TAG_EVENTS_FEED);
   revalidatePath(`/events/${eventId}`);
+  revalidateCacheTag(cacheTagEvent(eventId));
   return { ok: true, data: undefined };
 }
 
@@ -127,7 +131,9 @@ export async function cancelEvent(eventId: string, reason?: string): Promise<Act
   if (updErr) return { ok: false, error: updErr.message };
 
   revalidatePath('/events');
+  revalidateCacheTag(CACHE_TAG_EVENTS_FEED);
   revalidatePath(`/events/${eventId}`);
+  revalidateCacheTag(cacheTagEvent(eventId));
   return { ok: true, data: undefined };
 }
 
@@ -165,6 +171,8 @@ export async function deleteEvent(eventId: string): Promise<ActionResult> {
   if (delErr) return { ok: false, error: delErr.message };
 
   revalidatePath('/events');
+  revalidateCacheTag(CACHE_TAG_EVENTS_FEED);
+  revalidateCacheTag(cacheTagEvent(eventId));
   return { ok: true, data: undefined };
 }
 
@@ -239,7 +247,9 @@ export async function rsvpToEvent(eventId: string, status: RsvpStatus): Promise<
   if (upsertErr) return { ok: false, error: upsertErr.message };
 
   revalidatePath(`/events/${eventId}`);
+  revalidateCacheTag(cacheTagEvent(eventId));
   revalidatePath('/events');
+  revalidateCacheTag(CACHE_TAG_EVENTS_FEED);
   return { ok: true, data: undefined };
 }
 
@@ -290,12 +300,15 @@ export async function setEventCapacity(eventId: string, newCapacity: number | nu
   }
 
   revalidatePath(`/events/${eventId}`);
+  revalidateCacheTag(cacheTagEvent(eventId));
+  revalidatePath('/events');
+  revalidateCacheTag(CACHE_TAG_EVENTS_FEED);
   return { ok: true, data: undefined };
 }
 
 // ── Promote next waitlist on someone dropping out ──────────────────────────
 
-async function promoteNextWaitlist(supabase: Awaited<ReturnType<typeof createClient>>, eventId: string) {
+async function promoteNextWaitlist(supabase: SupabaseClient, eventId: string) {
   const { data: event } = await supabase
     .from('events').select('capacity').eq('id', eventId).maybeSingle();
   if (!event?.capacity) return;
@@ -332,6 +345,9 @@ export async function dropOwnRsvp(eventId: string): Promise<ActionResult> {
   if (delErr) return { ok: false, error: delErr.message };
   await promoteNextWaitlist(supabase, eventId);
   revalidatePath(`/events/${eventId}`);
+  revalidateCacheTag(cacheTagEvent(eventId));
+  revalidatePath('/events');
+  revalidateCacheTag(CACHE_TAG_EVENTS_FEED);
   return { ok: true, data: undefined };
 }
 
@@ -350,6 +366,7 @@ export async function addEventInvite(eventId: string, rawPhone: string): Promise
     return { ok: false, error: insertErr.message };
   }
   revalidatePath(`/events/${eventId}`);
+  revalidateCacheTag(cacheTagEvent(eventId));
   return { ok: true, data: undefined };
 }
 
@@ -363,6 +380,7 @@ export async function removeEventInvite(eventId: string, phone: string): Promise
     .eq('phone', phone);
   if (delErr) return { ok: false, error: delErr.message };
   revalidatePath(`/events/${eventId}`);
+  revalidateCacheTag(cacheTagEvent(eventId));
   return { ok: true, data: undefined };
 }
 
@@ -444,6 +462,7 @@ export async function saveEventCost(eventId: string, input: SaveCostInput): Prom
 
   if (participantIds.length === 0) {
     revalidatePath(`/events/${eventId}`);
+    revalidateCacheTag(cacheTagEvent(eventId));
     return { ok: true, data: undefined };
   }
 
@@ -462,6 +481,7 @@ export async function saveEventCost(eventId: string, input: SaveCostInput): Prom
   if (assignErr) return { ok: false, error: assignErr.message };
 
   revalidatePath(`/events/${eventId}`);
+  revalidateCacheTag(cacheTagEvent(eventId));
   return { ok: true, data: undefined };
 }
 
@@ -551,5 +571,6 @@ export async function recomputeEventCost(eventId: string): Promise<ActionResult>
   }
 
   revalidatePath(`/events/${eventId}`);
+  revalidateCacheTag(cacheTagEvent(eventId));
   return { ok: true, data: undefined };
 }

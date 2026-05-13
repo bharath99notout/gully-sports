@@ -1,4 +1,4 @@
-import { createClient } from '@/lib/supabase/server';
+import { getServerAuth } from '@/lib/supabase/server';
 import { notFound } from 'next/navigation';
 import SportBadge from '@/components/SportBadge';
 import Card from '@/components/ui/Card';
@@ -13,7 +13,7 @@ interface Props {
 
 export default async function TeamDetailPage({ params }: Props) {
   const { id } = await params;
-  const supabase = await createClient();
+  const { supabase, user } = await getServerAuth();
 
   const { data: team } = await supabase
     .from('teams')
@@ -23,7 +23,6 @@ export default async function TeamDetailPage({ params }: Props) {
 
   if (!team) notFound();
 
-  const { data: { user } } = await supabase.auth.getUser();
   const isOwner = user?.id === team.created_by;
 
   return (

@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation';
 import { Loader2, Check, X } from 'lucide-react';
 import { decideResponse, markAttendance } from '@/app/actions/pickups';
 import type { PickupResponse } from '@/types';
+import { buildPickupWaContextLine } from '@/lib/pickupShareText';
 
 type ResponseWithJoiner = PickupResponse & {
   joiner: { id: string; name: string; avatar_url: string | null; phone: string | null };
@@ -13,6 +14,8 @@ type ResponseWithJoiner = PickupResponse & {
 
 export default function HostApprovalList({
   pending, accepted, allResponses, requestId, slotsTotal, startTimeIso,
+  sportLabel,
+  groundName,
   mutualByJoinerId = {},
 }: {
   pending: ResponseWithJoiner[];
@@ -23,6 +26,8 @@ export default function HostApprovalList({
   slotsTotal: number;
   /** Used to decide whether to show the attendance buttons. */
   startTimeIso: string;
+  sportLabel: string;
+  groundName: string;
   /** Host's mutual match count with each joiner (for quick trust signal). */
   mutualByJoinerId?: Record<string, number>;
 }) {
@@ -74,6 +79,19 @@ export default function HostApprovalList({
             {accepted.map(r => {
               const busy = busyId === r.id;
               const mutual = mutualByJoinerId[r.joiner_id] ?? 0;
+              const digits = r.joiner.phone?.replace(/\D/g, '').slice(-10) ?? '';
+              const waHref =
+                digits.length === 10
+                  ? `https://wa.me/91${digits}?text=${encodeURIComponent(
+                      buildPickupWaContextLine({
+                        sportLabel,
+                        groundName,
+                        startIso: startTimeIso,
+                        role: 'host',
+                        counterpartName: r.joiner.name,
+                      }),
+                    )}`
+                  : null;
               return (
                 <div key={r.id} className="flex items-start gap-2.5 text-sm">
                   <JoinerAvatar id={r.joiner.id} name={r.joiner.name} url={r.joiner.avatar_url} />
@@ -93,15 +111,15 @@ export default function HostApprovalList({
                       Profile & stats →
                     </Link>
                   </div>
-                  {r.joiner.phone && (
+                  {waHref ? (
                     <a
-                      href={`https://wa.me/91${r.joiner.phone.replace(/\D/g, '').slice(-10)}`}
+                      href={waHref}
                       target="_blank" rel="noreferrer"
                       className="text-[11px] text-emerald-400 hover:underline shrink-0"
                     >
                       WhatsApp
                     </a>
-                  )}
+                  ) : null}
                   {matchStarted && (
                     <>
                       <button

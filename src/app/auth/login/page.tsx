@@ -82,8 +82,8 @@ function LoginForm() {
       setAccountDeleted(Boolean(body.account_deleted));
       if (body.account_deleted) {
         setStep('otp_phone');
-        setOtp('');
-        prevOtpLenRef.current = 0;
+        setOtp(expectedLast4Otp(phone10));
+        prevOtpLenRef.current = SMS_OTP_LENGTH;
         setLoading(false);
         return;
       }
@@ -113,8 +113,8 @@ function LoginForm() {
       }
 
       setStep('otp_phone');
-      setOtp('');
-      prevOtpLenRef.current = 0;
+      setOtp(expectedLast4Otp(phone10));
+      prevOtpLenRef.current = SMS_OTP_LENGTH;
       setLoading(false);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Network error');
@@ -124,9 +124,9 @@ function LoginForm() {
 
   useEffect(() => {
     if ((step !== 'otp_phone' && step !== 'otp_email') || loading) return;
+    const fullLen = step === 'otp_email' ? 6 : SMS_OTP_LENGTH;
     const len = otp.length;
-    const grewToFull =
-      len === SMS_OTP_LENGTH && prevOtpLenRef.current < SMS_OTP_LENGTH;
+    const grewToFull = len === fullLen && prevOtpLenRef.current < fullLen;
     prevOtpLenRef.current = len;
     if (grewToFull && otpFormRef.current) {
       otpFormRef.current.requestSubmit();

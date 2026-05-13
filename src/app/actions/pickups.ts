@@ -1,7 +1,8 @@
 'use server';
 
 import { revalidatePath } from 'next/cache';
-import { createClient } from '@/lib/supabase/server';
+import { getServerAuth } from '@/lib/supabase/server';
+import { CACHE_TAG_PICKUPS, revalidateCacheTag } from '@/lib/cache/tags';
 import type { SportType } from '@/types';
 
 /**
@@ -16,8 +17,7 @@ type ActionResult<T = void> =
   | { ok: false; error: string };
 
 async function requireUser() {
-  const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const { supabase, user } = await getServerAuth();
   if (!user) return { supabase, user: null as null, error: 'Sign in to continue' };
   return { supabase, user, error: null };
 }
@@ -98,6 +98,7 @@ export async function createPickup(
 
   revalidatePath('/pickups');
   revalidatePath('/dashboard');
+  revalidateCacheTag(CACHE_TAG_PICKUPS);
 
   // Fire push fan-out asynchronously — don't make the host wait.
   // We import dynamically because `web-push` is Node-only and we want
@@ -131,6 +132,7 @@ export async function cancelPickup(id: string): Promise<ActionResult> {
   revalidatePath('/pickups');
   revalidatePath(`/pickups/${id}`);
   revalidatePath('/dashboard');
+  revalidateCacheTag(CACHE_TAG_PICKUPS);
   return { ok: true, data: undefined };
 }
 
@@ -178,6 +180,7 @@ export async function requestToJoin(requestId: string): Promise<ActionResult> {
 
   revalidatePath(`/pickups/${requestId}`);
   revalidatePath('/pickups');
+  revalidateCacheTag(CACHE_TAG_PICKUPS);
   return { ok: true, data: undefined };
 }
 
@@ -195,6 +198,8 @@ export async function withdrawResponse(requestId: string): Promise<ActionResult>
   if (updErr) return { ok: false, error: updErr.message };
 
   revalidatePath(`/pickups/${requestId}`);
+  revalidatePath('/pickups');
+  revalidateCacheTag(CACHE_TAG_PICKUPS);
   return { ok: true, data: undefined };
 }
 
@@ -263,6 +268,7 @@ export async function decideResponse(
 
   revalidatePath(`/pickups/${row.request_id}`);
   revalidatePath('/pickups');
+  revalidateCacheTag(CACHE_TAG_PICKUPS);
   return { ok: true, data: undefined };
 }
 
@@ -300,5 +306,7 @@ export async function markAttendance(
   }
 
   revalidatePath(`/pickups/${row.request_id}`);
+  revalidatePath('/pickups');
+  revalidateCacheTag(CACHE_TAG_PICKUPS);
   return { ok: true, data: undefined };
 }

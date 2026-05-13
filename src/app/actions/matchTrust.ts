@@ -1,7 +1,8 @@
 'use server';
 
 import { revalidatePath } from 'next/cache';
-import { createClient } from '@/lib/supabase/server';
+import { getServerAuth } from '@/lib/supabase/server';
+import { CACHE_TAG_LEADERBOARD, revalidateCacheTag } from '@/lib/cache/tags';
 
 /**
  * Server actions for the match-trust workflow (migration 013).
@@ -21,8 +22,7 @@ import { createClient } from '@/lib/supabase/server';
 type ActionResult = { ok: true } | { ok: false; error: string };
 
 async function requireUser() {
-  const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const { supabase, user } = await getServerAuth();
   if (!user) return { supabase, user: null as null, error: 'Not signed in' };
   return { supabase, user, error: null };
 }
@@ -67,6 +67,8 @@ export async function confirmMatch(matchId: string): Promise<ActionResult> {
   revalidatePath('/dashboard');
   revalidatePath('/notifications');
   revalidatePath('/', 'layout');
+  revalidatePath('/leaderboard');
+  revalidateCacheTag(CACHE_TAG_LEADERBOARD);
   return { ok: true };
 }
 
@@ -97,6 +99,8 @@ export async function disputeMatch(matchId: string, reason: string): Promise<Act
   revalidatePath('/dashboard');
   revalidatePath('/notifications');
   revalidatePath('/', 'layout');
+  revalidatePath('/leaderboard');
+  revalidateCacheTag(CACHE_TAG_LEADERBOARD);
   return { ok: true };
 }
 
@@ -127,6 +131,8 @@ export async function forcePushMatch(matchId: string): Promise<ActionResult> {
 
   revalidatePath(`/matches/${matchId}`);
   revalidatePath('/admin/matches');
+  revalidatePath('/leaderboard');
+  revalidateCacheTag(CACHE_TAG_LEADERBOARD);
   return { ok: true };
 }
 
@@ -156,6 +162,9 @@ export async function approveMatch(matchId: string, notes?: string): Promise<Act
 
   revalidatePath('/admin/matches');
   revalidatePath(`/matches/${matchId}`);
+  revalidatePath('/dashboard');
+  revalidatePath('/leaderboard');
+  revalidateCacheTag(CACHE_TAG_LEADERBOARD);
   return { ok: true };
 }
 
@@ -178,6 +187,7 @@ export async function rejectMatch(matchId: string, notes?: string): Promise<Acti
   // Stat pages need to drop this match from aggregates.
   revalidatePath('/dashboard');
   revalidatePath('/leaderboard');
+  revalidateCacheTag(CACHE_TAG_LEADERBOARD);
   return { ok: true };
 }
 
@@ -202,5 +212,6 @@ export async function deleteMatchAsAdmin(matchId: string): Promise<ActionResult>
   revalidatePath('/leaderboard');
   revalidatePath('/players');
   revalidatePath('/profile');
+  revalidateCacheTag(CACHE_TAG_LEADERBOARD);
   return { ok: true };
 }

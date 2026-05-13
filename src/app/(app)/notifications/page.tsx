@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { createClient } from '@/lib/supabase/server';
+import { getServerAuth } from '@/lib/supabase/server';
 import { redirect } from 'next/navigation';
 import { Bell } from 'lucide-react';
 import { listNotificationsForUser } from '@/lib/notificationsServer';
@@ -7,8 +7,7 @@ import { markNotificationRead, markAllNotificationsRead } from '@/app/actions/no
 import AutoMarkAllRead from './AutoMarkAllRead';
 
 export default async function NotificationsPage() {
-  const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const { supabase, user } = await getServerAuth();
   if (!user) redirect('/auth/login');
 
   const rows = await listNotificationsForUser(user.id);

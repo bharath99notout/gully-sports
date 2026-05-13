@@ -1,7 +1,7 @@
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import { ExternalLink } from 'lucide-react';
-import { createClient } from '@/lib/supabase/server';
+import { getServerAuth } from '@/lib/supabase/server';
 import EditProfileForm from './EditProfileForm';
 import EmailOtpSection from './EmailOtpSection';
 import SignOutButton from './SignOutButton';
@@ -33,8 +33,7 @@ function phoneFromSyntheticEmail(email: string | null | undefined): string | nul
 }
 
 export default async function ProfilePage() {
-  const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const { supabase, user } = await getServerAuth();
   if (!user) redirect('/auth/login?next=/profile');
 
   // Try the modern select first; if migration 027 hasn't landed yet the

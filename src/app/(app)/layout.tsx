@@ -1,7 +1,7 @@
 import Navbar from '@/components/Navbar';
 import OfflineBanner from '@/components/OfflineBanner';
 import { OfflineProvider } from '@/lib/offline/OfflineProvider';
-import { createClient } from '@/lib/supabase/server';
+import { getServerAuth } from '@/lib/supabase/server';
 import {
   getPendingMatchesForUser,
   getAdminQueueCount,
@@ -12,8 +12,7 @@ import { getUnreadNotificationCount } from '@/lib/notificationsServer';
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
   // Trust badges on the Navbar — fetched once per layout render. Cheap:
   // both queries are head-only / index-served.
-  const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const { user } = await getServerAuth();
 
   let pendingCount = 0;
   let adminQueueCount = 0;

@@ -1,7 +1,7 @@
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import { Plus, MapPin, Clock } from 'lucide-react';
-import { createClient } from '@/lib/supabase/server';
+import { getServerAuth } from '@/lib/supabase/server';
 import { getMyPickups } from '@/lib/pickupsServer';
 import SportIcon from '@/components/SportIcon';
 import type { PickupRequestWithMeta } from '@/types';
@@ -25,8 +25,7 @@ function relative(iso: string): string {
 }
 
 export default async function MyPickupsPage() {
-  const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const { user } = await getServerAuth();
   if (!user) redirect('/auth/login?next=/pickups');
 
   const { hosted, joined } = await getMyPickups(user.id);
