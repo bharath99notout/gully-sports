@@ -23,7 +23,7 @@ export default async function LeaderboardPage() {
       playerTeamMap.set(`${row.match_id}__${row.player_id}`, row.team_name);
     }
     const setSportMatchIds = new Set(
-      raw.filter(r => r.sport === 'badminton' || r.sport === 'table_tennis' || r.sport === 'foosball').map(r => r.match_id),
+      raw.filter(r => r.sport === 'badminton' || r.sport === 'table_tennis' || r.sport === 'foosball' || r.sport === 'pickleball').map(r => r.match_id),
     );
     const playersPerTeam = new Map<string, Map<string, number>>(); // match_id → team_name → count
     for (const row of snap.matchPlayers) {
@@ -73,6 +73,8 @@ export default async function LeaderboardPage() {
   const aggTableTennisDoubles = new Map<string, AggRow>();
   const aggFoosballSingles = new Map<string, AggRow>();
   const aggFoosballDoubles = new Map<string, AggRow>();
+  const aggPickleballSingles = new Map<string, AggRow>();
+  const aggPickleballDoubles = new Map<string, AggRow>();
 
   function ensureAggRow(map: Map<string, AggRow>, key: string, r: LeaderboardRawStat): AggRow {
     if (!map.has(key)) {
@@ -113,6 +115,13 @@ export default async function LeaderboardPage() {
         key: r.player_id,
       });
     }
+    if (r.sport === 'pickleball') {
+      const fmt = setSportFormatByMatch.get(r.match_id) ?? 'doubles';
+      targets.push({
+        map: fmt === 'singles' ? aggPickleballSingles : aggPickleballDoubles,
+        key: r.player_id,
+      });
+    }
 
     // Determine win for THIS match
     const winner = r.matches?.winner_team_name
@@ -122,7 +131,7 @@ export default async function LeaderboardPage() {
     const won = !!(winner && playerTeam && winner === playerTeam);
 
     let setsWon = 0, cleanSweeps = 0;
-    if ((r.sport === 'badminton' || r.sport === 'table_tennis') && playerTeam) {
+    if ((r.sport === 'badminton' || r.sport === 'table_tennis' || r.sport === 'pickleball') && playerTeam) {
       const teams = matchTeamNames.get(r.match_id);
       const opponentName = teams?.[0] === playerTeam ? teams?.[1] : teams?.[0];
       const mySets = setsMap.get(`${r.match_id}__${playerTeam}`) ?? [];
@@ -166,6 +175,8 @@ export default async function LeaderboardPage() {
   const tableTennisDoubles: LeaderboardEntry[] = [];
   const foosballSingles: LeaderboardEntry[] = [];
   const foosballDoubles: LeaderboardEntry[] = [];
+  const pickleballSingles: LeaderboardEntry[] = [];
+  const pickleballDoubles: LeaderboardEntry[] = [];
 
   // Aggregate per player across sports for the "All" leaderboard
   const allByPlayer = new Map<string, {
@@ -205,7 +216,7 @@ export default async function LeaderboardPage() {
       goals: a.stat.goals,
     };
     // Set sports get their entries from the singles/doubles aggregates.
-    if (a.sport !== 'badminton' && a.sport !== 'table_tennis') pushEntry(a, entry);
+    if (a.sport !== 'badminton' && a.sport !== 'table_tennis' && a.sport !== 'pickleball') pushEntry(a, entry);
 
     // Roll into "All" aggregate
     if (!allByPlayer.has(a.player_id)) {
@@ -245,6 +256,8 @@ export default async function LeaderboardPage() {
   for (const a of aggTableTennisDoubles.values()) tableTennisDoubles.push(setSportEntry(a));
   for (const a of aggFoosballSingles.values())    foosballSingles.push(setSportEntry(a));
   for (const a of aggFoosballDoubles.values())    foosballDoubles.push(setSportEntry(a));
+  for (const a of aggPickleballSingles.values())  pickleballSingles.push(setSportEntry(a));
+  for (const a of aggPickleballDoubles.values())  pickleballDoubles.push(setSportEntry(a));
 
   const all: LeaderboardEntry[] = Array.from(allByPlayer.values()).map(p => ({
     player_id: p.player_id,
@@ -271,6 +284,8 @@ export default async function LeaderboardPage() {
         tableTennisDoubles={tableTennisDoubles}
         foosballSingles={foosballSingles}
         foosballDoubles={foosballDoubles}
+        pickleballSingles={pickleballSingles}
+        pickleballDoubles={pickleballDoubles}
         all={all}
       />
     </div>

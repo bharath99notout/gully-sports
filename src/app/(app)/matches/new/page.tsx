@@ -11,14 +11,9 @@ import { X } from 'lucide-react';
 import { recomputeEventCost } from '@/app/actions/events';
 import SportIcon from '@/components/SportIcon';
 import PlayerSearchAndAdd, { type PlayerAddResult } from '@/components/PlayerSearchAndAdd';
+import { SPORTS_LIST } from '@/lib/sports';
 
-const sports: { value: SportType; label: string }[] = [
-  { value: 'cricket',      label: 'Cricket' },
-  { value: 'football',     label: 'Football' },
-  { value: 'badminton',    label: 'Badminton' },
-  { value: 'table_tennis', label: 'T. Tennis' },
-  { value: 'foosball',     label: 'Foosball' },
-];
+const sports = SPORTS_LIST.map(s => ({ value: s.value, label: s.shortLabel }));
 
 interface PickedPlayer { id: string; name: string; }
 
@@ -40,6 +35,9 @@ function NewMatchForm() {
   const [badmintonBestOf, setBadmintonBestOf] = useState<1 | 3 | 5>(3);
   const [ttTarget, setTtTarget] = useState<11 | 15 | 21>(11);
   const [ttBestOf, setTtBestOf] = useState<1 | 3 | 5 | 7>(5);
+  // Pickleball defaults mirror badminton per product decision — 3 sets, 21 points.
+  const [pickleballTarget, setPickleballTarget] = useState<15 | 21>(21);
+  const [pickleballBestOf, setPickleballBestOf] = useState<1 | 3 | 5>(3);
   const [myTeams, setMyTeams] = useState<Team[]>([]);
 
   // Badminton: player pickers (up to 2 per side for doubles)
@@ -125,7 +123,7 @@ function NewMatchForm() {
     // Side-picker sports — no team rosters, sides are just lists of players,
     // match starts in 'live' status. Foosball is included because it's
     // played the same way (singles/doubles, no big roster).
-    const isRacket = sport === 'badminton' || sport === 'table_tennis' || sport === 'foosball';
+    const isRacket = sport === 'badminton' || sport === 'table_tennis' || sport === 'foosball' || sport === 'pickleball';
 
     if (isRacket) {
       if (sideAPlayers.length === 0 || sideBPlayers.length === 0) {
@@ -165,6 +163,10 @@ function NewMatchForm() {
     if (sport === 'table_tennis') {
       matchPayload.tt_sets = ttBestOf;
       matchPayload.tt_target_points = ttTarget;
+    }
+    if (sport === 'pickleball') {
+      matchPayload.pickleball_sets = pickleballBestOf;
+      matchPayload.pickleball_target_points = pickleballTarget;
     }
 
     const { data: match, error: matchError } = await supabase
@@ -254,19 +256,21 @@ function NewMatchForm() {
       )}
       <Card>
         <form onSubmit={handleSubmit} className="flex flex-col gap-5">
-          {/* Sport selector */}
+          {/* Sport selector — grid wraps to 2 rows on narrow screens so a
+              6th sport doesn't push the rightmost tile off the viewport.
+              3 cols on mobile (2 rows × 3), 6 cols on sm+ (single row). */}
           <div>
             <label className="text-sm font-medium text-gray-300 block mb-2">Sport</label>
-            <div className="flex gap-2">
+            <div className="grid grid-cols-3 sm:grid-cols-6 gap-2">
               {sports.map(s => (
                 <button key={s.value} type="button" onClick={() => setSport(s.value)}
-                  className={`flex-1 flex flex-col items-center gap-1 py-3 rounded-lg border text-sm transition-colors ${
+                  className={`flex flex-col items-center gap-1 py-3 rounded-lg border text-sm transition-colors ${
                     sport === s.value
                       ? 'border-emerald-500 bg-emerald-900/30 text-emerald-400'
                       : 'border-gray-700 bg-gray-800 text-gray-400 hover:border-gray-600'
                   }`}>
                   <SportIcon sport={s.value} className="text-xl" />
-                  {s.label}
+                  <span className="text-xs leading-tight text-center">{s.label}</span>
                 </button>
               ))}
             </div>
@@ -369,6 +373,55 @@ function NewMatchForm() {
             </div>
           )}
 
+          {/* Pickleball — set-based scoring identical in shape to badminton.
+              Defaults mirror badminton (best-of-3, target 21) per product
+              decision; the real-pickleball rec value of 11 stays available
+              on the target picker for users who prefer it. */}
+          {sport === 'pickleball' && (
+            <div className="flex flex-col gap-4">
+              <div>
+                <label className="text-sm font-medium text-gray-300 block mb-2">Game to</label>
+                <div className="flex gap-2">
+                  {([15, 21] as const).map(n => (
+                    <button key={n} type="button" onClick={() => setPickleballTarget(n)}
+                      className={`flex-1 py-2.5 rounded-lg border text-sm font-semibold transition-colors ${
+                        pickleballTarget === n
+                          ? 'border-emerald-500 bg-emerald-900/30 text-emerald-400'
+                          : 'border-gray-700 bg-gray-800 text-gray-400 hover:border-gray-600'
+                      }`}>
+                      {n} points
+                    </button>
+                  ))}
+                </div>
+                <p className="text-[11px] text-gray-600 mt-1">First to {pickleballTarget} wins the game.</p>
+              </div>
+
+              <div>
+                <label className="text-sm font-medium text-gray-300 block mb-2">Format</label>
+                <div className="flex gap-2">
+                  {([1, 3, 5] as const).map(n => (
+                    <button key={n} type="button" onClick={() => setPickleballBestOf(n)}
+                      className={`flex-1 py-2.5 rounded-lg border text-sm font-semibold transition-colors ${
+                        pickleballBestOf === n
+                          ? 'border-emerald-500 bg-emerald-900/30 text-emerald-400'
+                          : 'border-gray-700 bg-gray-800 text-gray-400 hover:border-gray-600'
+                      }`}>
+                      {n === 1 ? '1 game' : `Best of ${n}`}
+                    </button>
+                  ))}
+                </div>
+                <p className="text-[11px] text-gray-600 mt-1">
+                  Add up to 2 players per side — 2 makes it doubles.
+                </p>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <SidePicker label="Side A" players={sideAPlayers} setPlayers={setSideAPlayers} otherPlayers={sideBPlayers} />
+                <SidePicker label="Side B" players={sideBPlayers} setPlayers={setSideBPlayers} otherPlayers={sideAPlayers} />
+              </div>
+            </div>
+          )}
+
           {/* Foosball — just two side pickers, no best-of / target points
               (we don't track set scoring for foosball; host just declares
               the winner). Sides go up to 2 players → 2 = doubles. */}
@@ -385,7 +438,7 @@ function NewMatchForm() {
           )}
 
           {/* Cricket / Football team name inputs */}
-          {sport !== 'badminton' && sport !== 'table_tennis' && sport !== 'foosball' && (
+          {sport !== 'badminton' && sport !== 'table_tennis' && sport !== 'foosball' && sport !== 'pickleball' && (
             tournamentIdParam ? (
               // Tournament context: lock both teams to the tournament's roster
               // so player_match_stats roll up correctly into standings.

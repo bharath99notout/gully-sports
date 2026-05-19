@@ -106,9 +106,53 @@ export default async function DashboardPage() {
   if (detailedStats.tableTennis.matches > 0) {
     expandableDetails.table_tennis = <RacquetStatsPanel detail={detailedStats.tableTennis} />;
   }
+  if (detailedStats.pickleball.matches > 0) {
+    expandableDetails.pickleball = <RacquetStatsPanel detail={detailedStats.pickleball} />;
+  }
   if (detailedStats.foosball.matches > 0) {
     expandableDetails.foosball = <FoosballStatsPanel detail={detailedStats.foosball} />;
   }
+
+  // Sport ordering on the dashboard: most-played and recently-played sports
+  // float to the top so the player's current focus is the first thing they
+  // see. Composite rank = matches × recency-weight (exp decay, ~90 day
+  // half-life). Profile pages keep the canonical order — the dashboard is
+  // the only surface where the player's *own* recent activity should reshape
+  // the layout.
+  //
+  // Last-played per sport is derived from `rawFeed` (15 most recent matches)
+  // — sports that haven't surfaced in the recent window contribute zero to
+  // the recency term, which is fine because their `matches × exp(-large)`
+  // score is dominated by sports the player has actually played lately.
+  const HALF_LIFE_DAYS = 90;
+  const now = new Date().getTime();
+  const lastPlayedBySport = new Map<SportKey, number>();
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  for (const m of (rawFeed ?? []) as any[]) {
+    if (!m.sport || !m.played_at) continue;
+    const t = new Date(m.played_at).getTime();
+    const prev = lastPlayedBySport.get(m.sport as SportKey) ?? 0;
+    if (t > prev) lastPlayedBySport.set(m.sport as SportKey, t);
+  }
+  function rankFor(matches: number, sport: SportKey): number {
+    if (matches === 0) return -1;
+    const lastMs = lastPlayedBySport.get(sport);
+    if (!lastMs) return matches;            // played but not in recent window → fall back to volume
+    const ageDays = Math.max(0, (now - lastMs) / 86_400_000);
+    return matches * Math.exp(-ageDays / HALF_LIFE_DAYS);
+  }
+  // Use the AthleteData summary stats (sportStats) for the volume term so
+  // every sport contributes its real match count, including ones not in
+  // detailedStats (cricket innings ≠ matches, etc.).
+  const sportRanks: { key: SportKey; rank: number }[] = (
+    ['cricket', 'football', 'badminton', 'table_tennis', 'pickleball', 'foosball'] as SportKey[]
+  ).map(key => ({
+    key,
+    rank: rankFor(athleteData.sportStats[key].matches, key),
+  }));
+  // Sort descending by rank; ties (incl. zero-matches sports at -1) keep
+  // canonical input order — Array.prototype.sort in V8/Node is stable.
+  const sportOrder = [...sportRanks].sort((a, b) => b.rank - a.rank).map(r => r.key);
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const feedMatches = (rawFeed ?? []).map((m: any) => ({
@@ -205,7 +249,7 @@ export default async function DashboardPage() {
   const myOgVersion = `${profile?.avatar_url ?? 'noavatar'}|${profile?.name ?? ''}`
     .split('').reduce((h, c) => ((h << 5) - h + c.charCodeAt(0)) | 0, 0);
   const myOgImageUrl = `${origin}/p/${user!.id}/opengraph-image?v=${Math.abs(myOgVersion)}`;
-  const mySportLines = (['cricket', 'football', 'badminton', 'table_tennis'] as SportKey[])
+  const mySportLines = (['cricket', 'football', 'badminton', 'table_tennis', 'pickleball', 'foosball'] as SportKey[])
     .filter(s => athleteData.sportStats[s].matches > 0)
     .map(s => {
       const score = calcCaliber(s, athleteData.sportStats[s]);
@@ -216,6 +260,7 @@ export default async function DashboardPage() {
         : s === 'badminton'    ? '🏸'
         : s === 'table_tennis' ? '🏓'
         : s === 'foosball'     ? '🥅'
+        : s === 'pickleball'   ? '🥒'
         :                        '🎯';
       return `${emoji} ${label} (${score})`;
     });
@@ -244,6 +289,7 @@ export default async function DashboardPage() {
         expandableDetails={expandableDetails}
         defaultOpenSport={null}
         trustScore={trustScore}
+        sportOrder={sportOrder}
       />
 
       {/* Trust workflow — needs your attention. Sits right under the hero
@@ -258,7 +304,7 @@ export default async function DashboardPage() {
       <NearbyPickupsRail viewerId={user!.id} />
 
       {/* New match CTA — one tile per sport. Grid wraps to a second row
-          on mobile (3 cols) so all five sports stay visible without
+          on mobile (2 cols) so all six sports stay visible without
           horizontal scroll, and shows three across on small screens. */}
       <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
         {([
@@ -266,6 +312,7 @@ export default async function DashboardPage() {
           { sport: 'football' as SportType,     label: 'Football' },
           { sport: 'badminton' as SportType,    label: 'Badminton' },
           { sport: 'table_tennis' as SportType, label: 'T. Tennis' },
+          { sport: 'pickleball' as SportType,   label: 'Pickleball' },
           { sport: 'foosball' as SportType,     label: 'Foosball' },
         ]).map(({ sport, label }) => (
           <Link
@@ -296,6 +343,7 @@ export default async function DashboardPage() {
                 : m.sport === 'badminton'    ? '🏸'
                 : m.sport === 'table_tennis' ? '🏓'
                 : m.sport === 'foosball'     ? '🥅'
+                : m.sport === 'pickleball'   ? '🥒'
                 :                              '🎯';
               return (
                 <Link key={m.id} href={`/matches/${m.id}`}

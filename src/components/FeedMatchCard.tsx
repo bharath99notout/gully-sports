@@ -46,6 +46,7 @@ const sportColor: Record<SportType, string> = {
   football:     'text-green-400 bg-green-950/60 border-green-900',
   badminton:    'text-yellow-400 bg-yellow-950/60 border-yellow-900',
   table_tennis: 'text-orange-400 bg-orange-950/60 border-orange-900',
+  pickleball:   'text-amber-400 bg-amber-950/60 border-amber-900',
   foosball:     'text-purple-400 bg-purple-950/60 border-purple-900',
 };
 

@@ -24,6 +24,7 @@ const CricketScorer      = dynamic(() => import('./CricketScorer'),      { loadi
 const FootballScorer     = dynamic(() => import('./FootballScorer'),     { loading: ScorerSkeleton });
 const BadmintonScorer    = dynamic(() => import('./BadmintonScorer'),    { loading: ScorerSkeleton });
 const TableTennisScorer  = dynamic(() => import('./TableTennisScorer'),  { loading: ScorerSkeleton });
+const PickleballScorer   = dynamic(() => import('./PickleballScorer'),   { loading: ScorerSkeleton });
 const FoosballScorer     = dynamic(() => import('./FoosballScorer'),     { loading: ScorerSkeleton });
 
 interface Props {
@@ -361,6 +362,17 @@ export default async function MatchDetailPage({ params, searchParams }: Props) {
             matchPlayers={matchPlayers}
           />
         )}
+        {match.sport === 'pickleball' && (
+          <PickleballScorer
+            match={match as Match}
+            scoreA={scoreA}
+            scoreB={scoreB}
+            canEdit={canEditScoresForUi}
+            allowDisputeRecheck={allowDisputeRecheck}
+            adminOverrideCompleted={adminOverrideCompleted}
+            matchPlayers={matchPlayers}
+          />
+        )}
         {match.sport === 'foosball' && (
           <FoosballScorer
             match={match as Match}
@@ -425,6 +437,7 @@ async function MatchShareTrigger({ match, scoreA, scoreB }: {
     : match.sport === 'badminton'    ? '🏸'
     : match.sport === 'table_tennis' ? '🏓'
     : match.sport === 'foosball'     ? '🥅'
+    : match.sport === 'pickleball'   ? '🥒'
     :                                  '🎯';
 
   let scoreLine = '';

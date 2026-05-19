@@ -4,7 +4,7 @@ export default function manifest(): MetadataRoute.Manifest {
   return {
     name: 'GullySports – Local Match Scorer',
     short_name: 'GullySports',
-    description: 'Score and track gully cricket, football, badminton, table tennis & foosball matches. Build your player caliber.',
+    description: 'Score and track gully cricket, football, badminton, table tennis, pickleball & foosball matches. Build your player caliber.',
     start_url: '/dashboard',
     scope: '/',
     display: 'standalone',

@@ -8,14 +8,9 @@ import { createPickup } from '@/app/actions/pickups';
 import { useGeolocation } from '@/lib/useGeolocation';
 import SportIcon from '@/components/SportIcon';
 import type { SportType } from '@/types';
+import { SPORTS_LIST } from '@/lib/sports';
 
-const SPORTS: { value: SportType; label: string }[] = [
-  { value: 'cricket',      label: 'Cricket' },
-  { value: 'football',     label: 'Football' },
-  { value: 'badminton',    label: 'Badminton' },
-  { value: 'table_tennis', label: 'Table Tennis' },
-  { value: 'foosball',     label: 'Foosball' },
-];
+const SPORTS = SPORTS_LIST;
 
 const START_PRESETS = [
   { label: 'Now',     mins: 0   },
@@ -42,7 +37,11 @@ function localDatetimeToIso(local: string): string | null {
 }
 
 function maxScheduleLocalValue(): string {
-  return toLocalDatetimeValue(new Date(Date.now() + MAX_SCHEDULE_DAYS * 24 * 60 * 60 * 1000));
+  return toLocalDatetimeValue(new Date(new Date().getTime() + MAX_SCHEDULE_DAYS * 24 * 60 * 60 * 1000));
+}
+
+function localDatetimeFromNow(offsetMs: number): string {
+  return toLocalDatetimeValue(new Date(new Date().getTime() + offsetMs));
 }
 
 export default function NewPickupForm() {
@@ -67,7 +66,7 @@ export default function NewPickupForm() {
   }, [tryAgain]);
 
   function applyPresetMins(mins: number) {
-    setStartLocal(toLocalDatetimeValue(new Date(Date.now() + mins * 60 * 1000)));
+    setStartLocal(localDatetimeFromNow(mins * 60 * 1000));
   }
 
   async function submit(e: React.FormEvent) {
@@ -148,7 +147,7 @@ export default function NewPickupForm() {
       <form onSubmit={submit} className="flex flex-col gap-5">
         <div>
           <label className="block text-xs uppercase tracking-wider text-gray-500 mb-2">Sport</label>
-          <div className="grid grid-cols-3 sm:grid-cols-5 gap-2">
+          <div className="grid grid-cols-3 sm:grid-cols-6 gap-2">
             {SPORTS.map(s => (
               <button
                 type="button" key={s.value}
@@ -220,7 +219,7 @@ export default function NewPickupForm() {
           <input
             type="datetime-local"
             value={startLocal}
-            min={toLocalDatetimeValue(new Date(Date.now() - 60 * 1000))}
+            min={localDatetimeFromNow(-60 * 1000)}
             max={maxScheduleLocalValue()}
             onChange={e => setStartLocal(e.target.value)}
             className="w-full rounded-xl border border-gray-800 bg-gray-900 px-3 py-2.5 text-sm text-white outline-none focus:border-emerald-600 [color-scheme:dark]"

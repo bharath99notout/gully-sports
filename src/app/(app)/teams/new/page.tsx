@@ -9,14 +9,9 @@ import Input from '@/components/ui/Input';
 import Card from '@/components/ui/Card';
 import { SportType } from '@/types';
 import SportIcon from '@/components/SportIcon';
+import { SPORTS_LIST } from '@/lib/sports';
 
-const sports: { value: SportType; label: string }[] = [
-  { value: 'cricket',      label: 'Cricket' },
-  { value: 'football',     label: 'Football' },
-  { value: 'badminton',    label: 'Badminton' },
-  { value: 'table_tennis', label: 'T. Tennis' },
-  { value: 'foosball',     label: 'Foosball' },
-];
+const sports = SPORTS_LIST.map(s => ({ value: s.value, label: s.shortLabel }));
 
 /**
  * Team creation lives here, deliberately outside any tournament page.

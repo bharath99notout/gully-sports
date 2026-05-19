@@ -6,6 +6,7 @@ const sportConfig: Record<SportType, { label: string; color: string }> = {
   football:     { label: 'Football',     color: 'bg-green-900/50 text-green-400 border-green-800' },
   badminton:    { label: 'Badminton',    color: 'bg-yellow-900/50 text-yellow-400 border-yellow-800' },
   table_tennis: { label: 'Table Tennis', color: 'bg-orange-900/50 text-orange-400 border-orange-800' },
+  pickleball:   { label: 'Pickleball',   color: 'bg-amber-900/50 text-amber-400 border-amber-800' },
   foosball:     { label: 'Foosball',     color: 'bg-purple-900/50 text-purple-400 border-purple-800' },
 };
 

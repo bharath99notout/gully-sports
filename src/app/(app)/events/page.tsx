@@ -1,16 +1,20 @@
+import type { ReactNode } from 'react';
 import Link from 'next/link';
-import { CalendarDays, MapPin, Plus, Users, Flame } from 'lucide-react';
+import { CalendarDays, MapPin, Plus, Users, Flame, CalendarPlus } from 'lucide-react';
 import { listEvents, type EventListRow, type ListEventsOpts } from '@/lib/eventsServer';
 import { getServerAuth } from '@/lib/supabase/server';
 import { formatEventDateTime } from '@/lib/formatDateTime';
 import SportIcon from '@/components/SportIcon';
 import type { SportType } from '@/types';
+import { SPORTS_LIST, SPORT_VALUES } from '@/lib/sports';
 
-const SPORT_LABEL: Record<SportType, string> = {
-  cricket: 'Cricket', football: 'Football', badminton: 'Badminton', table_tennis: 'TT', foosball: 'Foosball',
-};
+// TT stays short in the chip strip (narrow row) — every other label uses
+// SPORTS_LIST.label so additions don't need to update this map.
+const SPORT_LABEL: Record<SportType, string> = Object.fromEntries(
+  SPORTS_LIST.map(s => [s.value, s.value === 'table_tennis' ? 'TT' : s.label])
+) as Record<SportType, string>;
 
-const SPORTS: SportType[] = ['cricket', 'football', 'badminton', 'table_tennis', 'foosball'];
+const SPORTS: SportType[] = [...SPORT_VALUES];
 
 
 type SearchParams = {
@@ -59,67 +63,79 @@ export default async function EventsPage({
   const events = await listEvents(opts);
 
   return (
-    <div className="max-w-2xl mx-auto flex flex-col gap-5">
-      <header className="flex items-start justify-between gap-3">
-        <div>
+    <div className="max-w-2xl mx-auto flex flex-col gap-4">
+      <header className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between sm:gap-4">
+        <div className="min-w-0">
           <h1 className="text-xl font-bold text-white flex items-center gap-2">
-            <CalendarDays size={20} className="text-emerald-400" /> Events
+            <CalendarDays size={20} className="text-emerald-400 shrink-0" /> Events
           </h1>
-          <p className="text-sm text-gray-500 mt-1">
+          <p className="text-sm text-gray-500 mt-1 leading-snug">
             Plan a session, find players, split the cost.
           </p>
         </div>
         {user && (
           <Link
             href="/events/new"
-            className="inline-flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-semibold px-3 py-2 rounded-xl"
+            className="inline-flex items-center justify-center gap-1.5 bg-emerald-600 hover:bg-emerald-500 active:bg-emerald-700 text-white text-sm font-semibold px-4 py-2.5 rounded-xl w-full sm:w-auto shrink-0 shadow-sm shadow-emerald-900/30"
           >
-            <Plus size={14} /> New event
+            <Plus size={16} strokeWidth={2.5} /> New event
           </Link>
         )}
       </header>
 
-      {/* Upcoming / Past tabs */}
-      <div className="grid grid-cols-2 bg-gray-900 border border-gray-800 rounded-xl p-1 text-sm font-medium">
+      {/* Upcoming / Past — compact segmented control */}
+      <div className="inline-flex w-full max-w-xs p-0.5 bg-gray-900/90 border border-gray-800 rounded-lg text-xs font-semibold">
         <Link
           href={buildHref(sp, { when: undefined, scope: undefined })}
-          className={`text-center py-2 rounded-lg transition-colors ${
-            when === 'upcoming' ? 'bg-emerald-900/40 text-emerald-300' : 'text-gray-400 hover:text-white'
+          className={`flex-1 min-h-[2.75rem] flex flex-col items-center justify-center gap-0 rounded-md transition-colors ${
+            when === 'upcoming' ? 'bg-emerald-600/25 text-emerald-300 ring-1 ring-emerald-500/30' : 'text-gray-400 hover:text-white'
           }`}
         >
           Upcoming
         </Link>
         <Link
           href={buildHref(sp, { when: 'past', scope: undefined })}
-          className={`text-center py-2 rounded-lg transition-colors ${
-            when === 'past' ? 'bg-emerald-900/40 text-emerald-300' : 'text-gray-400 hover:text-white'
+          className={`flex-1 min-h-[2.75rem] flex flex-col items-center justify-center gap-0 rounded-md transition-colors ${
+            when === 'past' ? 'bg-emerald-600/25 text-emerald-300 ring-1 ring-emerald-500/30' : 'text-gray-400 hover:text-white'
           }`}
         >
-          Past {when === 'past' && scope === 'mine' && <span className="text-[10px] text-gray-500">(mine)</span>}
+          <span>Past</span>
+          {when === 'past' && scope === 'mine' && (
+            <span className="text-[10px] font-normal text-gray-500 leading-none mt-0.5">mine</span>
+          )}
         </Link>
       </div>
 
-      {/* Sport tabs */}
-      <div className="flex flex-wrap gap-2">
-        <Link
-          href={buildHref(sp, { sport: undefined })}
-          className={`text-xs px-3 py-1.5 rounded-full border transition-colors ${
-            !sport ? 'bg-gray-700 border-gray-600 text-white' : 'border-gray-700 text-gray-400 hover:border-gray-600'
-          }`}
+      {/* Sport filters — single horizontal row (scroll on narrow phones) */}
+      <div className="relative -mx-4 sm:mx-0">
+        <div
+          className="flex gap-2 overflow-x-auto px-4 sm:px-0 pb-1.5 pt-0.5 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden snap-x snap-mandatory touch-pan-x"
+          role="toolbar"
+          aria-label="Filter by sport"
         >
-          All sports
-        </Link>
-        {SPORTS.map(s => (
-          <Link
-            key={s}
-            href={buildHref(sp, { sport: s })}
-            className={`text-xs px-3 py-1.5 rounded-full border transition-colors ${
-              sport === s ? 'bg-gray-700 border-gray-600 text-white' : 'border-gray-700 text-gray-400 hover:border-gray-600'
-            }`}
+          <FilterChip
+            href={buildHref(sp, { sport: undefined })}
+            active={!sport}
+            className="snap-start"
           >
-            <SportIcon sport={s} className="mr-1" /> {SPORT_LABEL[s]}
-          </Link>
-        ))}
+            All sports
+          </FilterChip>
+          {SPORTS.map(s => (
+            <FilterChip
+              key={s}
+              href={buildHref(sp, { sport: s })}
+              active={sport === s}
+              className="snap-start"
+            >
+              <span className="inline-flex items-center gap-1.5">
+                <span className="text-sm leading-none inline-flex items-center justify-center [&>svg]:size-[1em]">
+                  <SportIcon sport={s} />
+                </span>
+                {SPORT_LABEL[s]}
+              </span>
+            </FilterChip>
+          ))}
+        </div>
       </div>
 
       {/* Recruiting + Scope chips (only meaningful for upcoming) */}
@@ -127,21 +143,21 @@ export default async function EventsPage({
         <div className="flex flex-wrap gap-2">
           <Link
             href={buildHref(sp, { recruiting: recruiting ? undefined : '1' })}
-            className={`inline-flex items-center gap-1 text-xs px-3 py-1.5 rounded-full border transition-colors ${
+            className={`inline-flex items-center gap-1.5 text-xs font-medium px-3 py-2 rounded-full border transition-colors ${
               recruiting
-                ? 'bg-orange-900/40 border-orange-700 text-orange-300'
-                : 'border-gray-700 text-gray-400 hover:border-orange-700 hover:text-orange-300'
+                ? 'bg-orange-950/50 border-orange-600/60 text-orange-200'
+                : 'border-gray-700 text-gray-400 hover:border-orange-700/80 hover:text-orange-200'
             }`}
           >
-            <Flame size={12} /> Looking for players
+            <Flame size={13} className="shrink-0" /> Looking for players
           </Link>
           {user && (
             <Link
               href={buildHref(sp, { scope: scope === 'mine' ? undefined : 'mine' })}
-              className={`text-xs px-3 py-1.5 rounded-full border transition-colors ${
+              className={`inline-flex items-center text-xs font-medium px-3 py-2 rounded-full border transition-colors ${
                 scope === 'mine'
-                  ? 'bg-emerald-900/40 border-emerald-700 text-emerald-300'
-                  : 'border-gray-700 text-gray-400 hover:border-emerald-700 hover:text-emerald-300'
+                  ? 'bg-emerald-950/50 border-emerald-600/50 text-emerald-200'
+                  : 'border-gray-700 text-gray-400 hover:border-emerald-700/80 hover:text-emerald-200'
               }`}
             >
               My events only
@@ -213,6 +229,31 @@ function EventRow({ event: e }: { event: EventListRow }) {
   );
 }
 
+function FilterChip({
+  href,
+  active,
+  className = '',
+  children,
+}: {
+  href: string;
+  active: boolean;
+  className?: string;
+  children: ReactNode;
+}) {
+  return (
+    <Link
+      href={href}
+      className={`shrink-0 whitespace-nowrap text-xs font-medium px-3.5 py-2 rounded-full border transition-colors inline-flex items-center justify-center ${className} ${
+        active
+          ? 'bg-gray-700/90 border-gray-500 text-white shadow-sm shadow-black/20'
+          : 'border-gray-700/90 text-gray-400 hover:border-gray-600 hover:text-gray-200 bg-gray-950/40'
+      }`}
+    >
+      {children}
+    </Link>
+  );
+}
+
 function EmptyState({
   when, recruiting, sport, scope,
 }: {
@@ -232,8 +273,14 @@ function EmptyState({
     msg = 'No upcoming events. Create one to get started.';
   }
   return (
-    <p className="text-sm text-gray-500 bg-gray-900 border border-dashed border-gray-800 rounded-2xl p-6 text-center">
-      {msg}
-    </p>
+    <div className="rounded-2xl border border-gray-800 bg-gradient-to-b from-gray-900/90 to-gray-950/90 p-8 text-center ring-1 ring-white/[0.04]">
+      <div
+        className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-2xl bg-emerald-950/40 text-emerald-400 ring-1 ring-emerald-500/20"
+        aria-hidden
+      >
+        <CalendarPlus size={22} strokeWidth={1.75} />
+      </div>
+      <p className="text-sm text-gray-400 leading-relaxed max-w-sm mx-auto">{msg}</p>
+    </div>
   );
 }

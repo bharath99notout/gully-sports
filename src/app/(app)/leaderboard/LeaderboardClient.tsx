@@ -28,6 +28,7 @@ const TABS: { key: TabKey; label: string }[] = [
   { key: 'football',     label: 'Football' },
   { key: 'badminton',    label: 'Badminton' },
   { key: 'table_tennis', label: 'T. Tennis' },
+  { key: 'pickleball',   label: 'Pickleball' },
   { key: 'foosball',     label: 'Foosball' },
 ];
 
@@ -55,6 +56,7 @@ function modesForSport(tab: TabKey): { value: LeaderboardMode; label: string }[]
       ];
     case 'badminton':
     case 'table_tennis':
+    case 'pickleball':
     case 'foosball':
     case 'all':
     default:
@@ -76,6 +78,9 @@ interface Props {
   /** Foosball — same heuristic as TT/badminton. */
   foosballSingles: LeaderboardEntry[];
   foosballDoubles: LeaderboardEntry[];
+  /** Pickleball — same heuristic as TT/badminton. */
+  pickleballSingles: LeaderboardEntry[];
+  pickleballDoubles: LeaderboardEntry[];
   all: LeaderboardEntry[];
 }
 
@@ -88,6 +93,8 @@ export default function LeaderboardClient({
   tableTennisDoubles,
   foosballSingles,
   foosballDoubles,
+  pickleballSingles,
+  pickleballDoubles,
   all,
 }: Props) {
   const [active, setActive] = useState<TabKey>('all');
@@ -101,6 +108,7 @@ export default function LeaderboardClient({
     : active === 'football'     ? football
     : active === 'badminton'    ? (setFormat === 'singles' ? badmintonSingles : badmintonDoubles)
     : active === 'table_tennis' ? (setFormat === 'singles' ? tableTennisSingles : tableTennisDoubles)
+    : active === 'pickleball'   ? (setFormat === 'singles' ? pickleballSingles : pickleballDoubles)
     : /* foosball */              (setFormat === 'singles' ? foosballSingles : foosballDoubles);
 
   const modes = modesForSport(active);
@@ -109,7 +117,7 @@ export default function LeaderboardClient({
   // Points which is universal.
   const safeMode: LeaderboardMode = modes.some(m => m.value === mode) ? mode : 'points';
 
-  const isSetSport = active === 'badminton' || active === 'table_tennis' || active === 'foosball';
+  const isSetSport = active === 'badminton' || active === 'table_tennis' || active === 'pickleball' || active === 'foosball';
 
   // Headline counts on the sport tab — for set sports we count distinct
   // player IDs across both formats so the chip reflects "people who have
@@ -128,6 +136,10 @@ export default function LeaderboardClient({
     }
     if (k === 'foosball') {
       const ids = new Set([...foosballSingles.map(e => e.player_id), ...foosballDoubles.map(e => e.player_id)]);
+      return ids.size;
+    }
+    if (k === 'pickleball') {
+      const ids = new Set([...pickleballSingles.map(e => e.player_id), ...pickleballDoubles.map(e => e.player_id)]);
       return ids.size;
     }
     return 0;

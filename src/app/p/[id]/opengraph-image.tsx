@@ -24,6 +24,7 @@ const SPORT_META: Record<SportKey, { emoji: string; label: string }> = {
   football:     { emoji: '⚽', label: 'Football' },
   badminton:    { emoji: '🏸', label: 'Badminton' },
   table_tennis: { emoji: '🏓', label: 'T. Tennis' },
+  pickleball:   { emoji: '🥒', label: 'Pickleball' },
   foosball:     { emoji: '🥅', label: 'Foosball' },
 };
 

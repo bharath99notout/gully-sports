@@ -8,14 +8,9 @@ import { createClient } from '@/lib/supabase/client';
 import Button from '@/components/ui/Button';
 import SportIcon from '@/components/SportIcon';
 import type { SportType } from '@/types';
+import { SPORTS_LIST } from '@/lib/sports';
 
-const SPORTS: { value: SportType; label: string }[] = [
-  { value: 'cricket',      label: 'Cricket' },
-  { value: 'football',     label: 'Football' },
-  { value: 'badminton',    label: 'Badminton' },
-  { value: 'table_tennis', label: 'Table Tennis' },
-  { value: 'foosball',     label: 'Foosball' },
-];
+const SPORTS = SPORTS_LIST;
 
 export default function NewTournamentPage() {
   const router = useRouter();

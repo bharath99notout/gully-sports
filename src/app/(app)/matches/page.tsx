@@ -6,6 +6,7 @@ import SportBadge from '@/components/SportBadge';
 import SportIcon from '@/components/SportIcon';
 import DeleteSuccessBanner from '@/components/DeleteSuccessBanner';
 import { Match, SportType } from '@/types';
+import { SPORT_VALUES } from '@/lib/sports';
 
 const statusLabel: Record<string, string> = {
   live: '● LIVE',
@@ -56,13 +57,7 @@ export default async function MatchesPage({
     matches = (data ?? []) as Match[];
   }
 
-  const sports: { value: SportType }[] = [
-    { value: 'cricket' },
-    { value: 'football' },
-    { value: 'badminton' },
-    { value: 'table_tennis' },
-    { value: 'foosball' },
-  ];
+  const sports: { value: SportType }[] = SPORT_VALUES.map(v => ({ value: v }));
 
   return (
     <div className="flex flex-col gap-6">

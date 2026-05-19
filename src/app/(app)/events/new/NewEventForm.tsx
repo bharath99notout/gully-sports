@@ -7,14 +7,9 @@ import { Loader2 } from 'lucide-react';
 import { createEvent, updateEvent } from '@/app/actions/events';
 import SportIcon from '@/components/SportIcon';
 import type { SportEvent, SportType } from '@/types';
+import { SPORTS_LIST } from '@/lib/sports';
 
-const SPORTS: { value: SportType; label: string }[] = [
-  { value: 'cricket',      label: 'Cricket' },
-  { value: 'football',     label: 'Football' },
-  { value: 'badminton',    label: 'Badminton' },
-  { value: 'table_tennis', label: 'Table Tennis' },
-  { value: 'foosball',     label: 'Foosball' },
-];
+const SPORTS = SPORTS_LIST;
 
 function defaultStartLocal(): string {
   const d = new Date();
@@ -122,7 +117,7 @@ export default function NewEventForm({ existing }: { existing?: SportEvent } = {
       </Field>
 
       <Field label="Sport" required>
-        <div className="grid grid-cols-4 gap-2">
+        <div className="grid grid-cols-3 sm:grid-cols-6 gap-2">
           {SPORTS.map(s => (
             <button
               key={s.value} type="button"

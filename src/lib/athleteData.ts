@@ -69,7 +69,8 @@ export function buildFootballDetail(rows: RawStat[]): FootballDetail {
   for (const r of football) byMatch.set(r.match_id, r);
   const unique = [...byMatch.values()];
 
-  let wins = 0, losses = 0, draws = 0, totalGoals = 0;
+  let wins = 0, losses = 0, totalGoals = 0;
+  const draws = 0;
   let hatTricks = 0, bestMatchGoals = 0, cleanWins = 0;
   let resulted = 0;
 
@@ -565,7 +566,7 @@ export function buildAthleteData(
   profile: { id: string; name: string; avatar_url?: string | null; created_at: string },
   stats: RawStat[]
 ): AthleteData {
-  const sports: SportKey[] = ['cricket', 'football', 'badminton', 'table_tennis', 'foosball'];
+  const sports: SportKey[] = ['cricket', 'football', 'badminton', 'table_tennis', 'foosball', 'pickleball'];
 
   const sportStats = sports.reduce((acc, sport) => {
     const rows = stats.filter(s => s.sport === sport);

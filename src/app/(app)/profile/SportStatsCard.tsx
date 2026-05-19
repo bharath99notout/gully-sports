@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import SportIcon from '@/components/SportIcon';
 
-type SportKey = 'cricket' | 'football' | 'badminton' | 'table_tennis' | 'foosball';
+type SportKey = 'cricket' | 'football' | 'badminton' | 'table_tennis' | 'pickleball' | 'foosball';
 interface SportStat {
   matches: number; wins: number; runs: number;
   wickets: number; catches: number; goals: number;
@@ -14,6 +14,7 @@ const tabs: { key: SportKey; label: string }[] = [
   { key: 'football',     label: 'Football' },
   { key: 'badminton',    label: 'Badminton' },
   { key: 'table_tennis', label: 'T. Tennis' },
+  { key: 'pickleball',   label: 'Pickleball' },
   { key: 'foosball',     label: 'Foosball' },
 ];
 

@@ -26,6 +26,7 @@ const sportMeta: { key: SportKey; emoji: string; label: string }[] = [
   { key: 'football',     emoji: '⚽', label: 'Football' },
   { key: 'badminton',    emoji: '🏸', label: 'Badminton' },
   { key: 'table_tennis', emoji: '🏓', label: 'Table Tennis' },
+  { key: 'pickleball',   emoji: '🥒', label: 'Pickleball' },
   { key: 'foosball',     emoji: '🥅', label: 'Foosball' },
 ];
 
@@ -75,6 +76,12 @@ interface Props {
   hideIdentityBlock?: boolean;
   /** Optional reliability signal shown inline with the athlete identity. */
   trustScore?: PlayerTrustScore;
+  /**
+   * Optional explicit display order for the sport bars. Sport keys not in
+   * the list keep their natural order at the end. Used on the dashboard so
+   * the player's most-played / recently-played sports float to the top.
+   */
+  sportOrder?: SportKey[];
 }
 
 export default function AthleteCard({
@@ -86,18 +93,33 @@ export default function AthleteCard({
   defaultOpenSport,
   hideIdentityBlock = false,
   trustScore,
+  sportOrder,
 }: Props) {
   const { name, avatarUrl, sportStats, joinedYear } = athlete;
   const tagline = getPlayerTagline(sportStats);
   const sportTaglines = getPlayerTaglines(sportStats);
   const overallScore = getOverallLevel(sportStats);
   const { text: overallColor } = getCaliberColor(overallScore);
-  const activeSportKeys = (sportMeta.filter(s => sportStats[s.key].matches > 0).map(s => s.key) as SportKey[]);
+
+  // Effective order — caller-provided ranking (dashboard most-played-first)
+  // wins; otherwise the file-level canonical order. Anything the caller
+  // forgets to include keeps its natural slot at the end so we never drop
+  // a sport bar silently.
+  const orderedMeta = sportOrder
+    ? [
+        ...sportOrder
+          .map(k => sportMeta.find(m => m.key === k))
+          .filter((m): m is typeof sportMeta[number] => Boolean(m)),
+        ...sportMeta.filter(m => !sportOrder.includes(m.key)),
+      ]
+    : sportMeta;
+
+  const activeSportKeys = (orderedMeta.filter(s => sportStats[s.key].matches > 0).map(s => s.key) as SportKey[]);
   const overallLabel = getCaliberTierLabel(overallScore, activeSportKeys);
 
   const totalMatches = Object.values(sportStats).reduce((a, s) => a + s.matches, 0);
   const totalWins = Object.values(sportStats).reduce((a, s) => a + s.wins, 0);
-  const activeSports = sportMeta.filter(s => sportStats[s.key].matches > 0);
+  const activeSports = orderedMeta.filter(s => sportStats[s.key].matches > 0);
 
   return (
     <div className="bg-gray-900 border border-gray-800 rounded-2xl overflow-hidden">
@@ -174,7 +196,7 @@ export default function AthleteCard({
 
         {/* Sport caliber bars (interactive on profile pages via expandableDetails) */}
         <SportBarsList
-          rows={sportMeta.map(m => ({
+          rows={orderedMeta.map(m => ({
             key: m.key, emoji: m.emoji, label: m.label,
             statSummary: statLine(m.key, sportStats[m.key]),
             details: expandableDetails?.[m.key],

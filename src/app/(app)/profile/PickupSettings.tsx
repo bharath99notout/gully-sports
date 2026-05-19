@@ -4,14 +4,9 @@ import { useEffect, useState } from 'react';
 import { Loader2, Bell, BellOff } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 import type { SportType } from '@/types';
+import { SPORTS_LIST } from '@/lib/sports';
 
-const ALL_SPORTS: { value: SportType; label: string }[] = [
-  { value: 'cricket',      label: 'Cricket' },
-  { value: 'football',     label: 'Football' },
-  { value: 'badminton',    label: 'Badminton' },
-  { value: 'table_tennis', label: 'Table Tennis' },
-  { value: 'foosball',     label: 'Foosball' },
-];
+const ALL_SPORTS = SPORTS_LIST;
 
 const RADIUS_OPTIONS = [1, 3, 5, 10, 25] as const;
 
@@ -49,11 +44,10 @@ export default function PickupSettings({ userId, initial, vapidPublicKey }: Prop
   const [pushSupported, setPushSupported] = useState<boolean | null>(null);
 
   useEffect(() => {
-    setPushSupported(
-      typeof window !== 'undefined'
-      && 'serviceWorker' in navigator
-      && 'PushManager' in window
-    );
+    const timer = window.setTimeout(() => {
+      setPushSupported('serviceWorker' in navigator && 'PushManager' in window);
+    }, 0);
+    return () => window.clearTimeout(timer);
   }, []);
 
   async function ensurePushSubscription(): Promise<boolean> {

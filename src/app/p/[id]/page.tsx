@@ -139,6 +139,9 @@ export default async function PublicProfilePage({ params }: Props) {
   if (detailedStats.tableTennis.matches > 0) {
     expandableDetails.table_tennis = <RacquetStatsPanel detail={detailedStats.tableTennis} />;
   }
+  if (detailedStats.pickleball.matches > 0) {
+    expandableDetails.pickleball = <RacquetStatsPanel detail={detailedStats.pickleball} />;
+  }
   if (detailedStats.foosball.matches > 0) {
     expandableDetails.foosball = <FoosballStatsPanel detail={detailedStats.foosball} />;
   }
@@ -169,12 +172,19 @@ export default async function PublicProfilePage({ params }: Props) {
   const ogVersion = `${profile.avatar_url ?? 'noavatar'}|${profile.name ?? ''}`
     .split('').reduce((h, c) => ((h << 5) - h + c.charCodeAt(0)) | 0, 0);
   const ogImageUrl = `${origin}/p/${id}/opengraph-image?v=${Math.abs(ogVersion)}`;
-  const sportLines = (['cricket', 'football', 'badminton', 'table_tennis'] as SportKey[])
+  const sportLines = (['cricket', 'football', 'badminton', 'table_tennis', 'pickleball', 'foosball'] as SportKey[])
     .filter(s => athleteData.sportStats[s].matches > 0)
     .map(s => {
       const score = calcCaliber(s, athleteData.sportStats[s]);
       const label = getCaliberLabel(score);
-      const emoji = s === 'cricket' ? '🏏' : s === 'football' ? '⚽' : s === 'badminton' ? '🏸' : '🏓';
+      const emoji =
+          s === 'cricket'      ? '🏏'
+        : s === 'football'     ? '⚽'
+        : s === 'badminton'    ? '🏸'
+        : s === 'table_tennis' ? '🏓'
+        : s === 'foosball'     ? '🥅'
+        : s === 'pickleball'   ? '🥒'
+        :                        '🎯';
       return `${emoji} ${label} (${score})`;
     });
   const shareText = [`🏆 ${athleteData.name} on GullySports`, ...sportLines].join('\n');
@@ -314,6 +324,8 @@ export default async function PublicProfilePage({ params }: Props) {
 
         <AthleteCard athlete={athleteData} expandableDetails={expandableDetails} hideIdentityBlock />
 
+        {!isOwnProfile && <TrustScoreBadge trustScore={trustScore} />}
+
         {feedMatches.length > 0 && (
           <div>
             <h2 className="text-sm font-semibold text-white mb-1">
@@ -326,8 +338,6 @@ export default async function PublicProfilePage({ params }: Props) {
             </div>
           </div>
         )}
-
-        {!isOwnProfile && <TrustScoreBadge trustScore={trustScore} />}
 
         {/* CTA for anonymous visitors */}
         {!user && (

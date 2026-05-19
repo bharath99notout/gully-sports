@@ -8,6 +8,7 @@ const LANDING_SPORTS = [
   { sport: 'football', label: 'Football' },
   { sport: 'badminton', label: 'Badminton' },
   { sport: 'table_tennis', label: 'Table tennis' },
+  { sport: 'pickleball', label: 'Pickleball' },
   { sport: 'foosball', label: 'Foosball' },
 ] as const;
 
@@ -23,7 +24,7 @@ export default function LandingPage() {
           Score your local matches in seconds.
         </p>
         <p className="text-gray-500 mb-10 max-w-md px-1">
-          Cricket, football, badminton, table tennis, and foosball — track live scores, player stats, and match history.
+          Cricket, football, badminton, table tennis, pickleball, and foosball — track live scores, player stats, and match history.
         </p>
 
         <div className="flex gap-3">

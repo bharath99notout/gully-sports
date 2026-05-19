@@ -18,7 +18,7 @@ export const metadata: Metadata = {
   metadataBase: new URL(siteUrl),
   title: 'GullySports – Local Match Scorer',
   description:
-    'Score and track your local cricket, football, badminton, table tennis, and foosball matches. Build your player caliber.',
+    'Score and track your local cricket, football, badminton, table tennis, pickleball, and foosball matches. Build your player caliber.',
   applicationName: 'GullySports',
   appleWebApp: {
     capable: true,
@@ -39,13 +39,13 @@ export const metadata: Metadata = {
     siteName: 'GullySports',
     title: 'GullySports – Score your gully matches in seconds',
     description:
-      'Cricket, football, badminton, table tennis & foosball — live scores, player caliber and match history.',
+      'Cricket, football, badminton, table tennis, pickleball & foosball — live scores, player caliber and match history.',
   },
   twitter: {
     card: 'summary_large_image',
     title: 'GullySports – Score your gully matches in seconds',
     description:
-      'Cricket, football, badminton, table tennis & foosball — live scores, player caliber and match history.',
+      'Cricket, football, badminton, table tennis, pickleball & foosball — live scores, player caliber and match history.',
   },
 };
 

@@ -55,8 +55,8 @@ export default function LandingOgImage() {
         </div>
 
         <div style={{ marginTop: 32, fontSize: 32, color: '#9ca3af', maxWidth: 900, fontWeight: 500 }}>
-          Cricket · Football · Badminton · Table Tennis — track live scores,
-          player caliber and match history.
+          Cricket · Football · Badminton · Table Tennis · Pickleball · Foosball
+          — track live scores, player caliber and match history.
         </div>
 
         <div style={{ display: 'flex', gap: 16, marginTop: 'auto' }}>
@@ -65,6 +65,8 @@ export default function LandingOgImage() {
             { emoji: '⚽', label: 'Football' },
             { emoji: '🏸', label: 'Badminton' },
             { emoji: '🏓', label: 'Table Tennis' },
+            { emoji: '🥒', label: 'Pickleball' },
+            { emoji: '🥅', label: 'Foosball' },
           ].map((s) => (
             <div
               key={s.label}

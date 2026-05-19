@@ -20,6 +20,7 @@ export interface DetailedStats {
   football:    FootballDetail;
   badminton:   RacquetDetail;
   tableTennis: RacquetDetail;
+  pickleball:  RacquetDetail;
   foosball:    FoosballDetail;
 }
 
@@ -40,7 +41,7 @@ export async function fetchPlayerDetailedStats(
   const football = buildFootballDetail(enriched);
 
   const racquetRows = enriched.filter(
-    r => r.sport === 'badminton' || r.sport === 'table_tennis',
+    r => r.sport === 'badminton' || r.sport === 'table_tennis' || r.sport === 'pickleball',
   );
   const foosballRows = enriched.filter(r => r.sport === 'foosball');
 
@@ -51,6 +52,7 @@ export async function fetchPlayerDetailedStats(
       cricket, football,
       badminton: empty,
       tableTennis: empty,
+      pickleball: empty,
       foosball: ad.emptyFoosballDetail(),
     };
   }
@@ -97,6 +99,7 @@ export async function fetchPlayerDetailedStats(
 
   const badmintonRows   = racquetRows.filter(r => sportByMatch.get(r.match_id) === 'badminton');
   const tableTennisRows = racquetRows.filter(r => sportByMatch.get(r.match_id) === 'table_tennis');
+  const pickleballRows  = racquetRows.filter(r => sportByMatch.get(r.match_id) === 'pickleball');
 
   const badminton = badmintonRows.length > 0
     ? buildRacquetDetail(buildRacquetMatchInputs(
@@ -108,6 +111,11 @@ export async function fetchPlayerDetailedStats(
         tableTennisRows, allMatchPlayers ?? [], scoresByMatch, playedAtByMatch, playerId, false,
       ))
     : emptyRacquet;
+  const pickleball = pickleballRows.length > 0
+    ? buildRacquetDetail(buildRacquetMatchInputs(
+        pickleballRows, allMatchPlayers ?? [], scoresByMatch, playedAtByMatch, playerId, false,
+      ))
+    : emptyRacquet;
 
   const foosball = foosballRows.length > 0
     ? buildFoosballDetail(buildFoosballMatchInputs(
@@ -115,5 +123,5 @@ export async function fetchPlayerDetailedStats(
       ))
     : ad.emptyFoosballDetail();
 
-  return { cricket, football, badminton, tableTennis, foosball };
+  return { cricket, football, badminton, tableTennis, pickleball, foosball };
 }
