@@ -31,7 +31,7 @@ export default async function MyPickupsPage() {
   const { hosted, joined } = await getMyPickups(user.id);
 
   return (
-    <div className="max-w-2xl mx-auto px-4 py-6 flex flex-col gap-6">
+    <div className="max-w-2xl mx-auto px-4 py-6 flex flex-col gap-5">
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold text-white">My Pickups</h1>
         <Link
@@ -39,6 +39,14 @@ export default async function MyPickupsPage() {
           className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-bold"
         >
           <Plus size={14} /> New
+        </Link>
+      </div>
+
+      <div className="flex items-center gap-2 text-xs">
+        <span className="text-emerald-400 font-semibold">My pickups</span>
+        <span className="text-gray-700">·</span>
+        <Link href="/pickups/discover" className="text-gray-400 hover:text-gray-200 underline-offset-2 hover:underline">
+          Discover
         </Link>
       </div>
 

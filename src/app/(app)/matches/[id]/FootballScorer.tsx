@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { offlineMutate } from '@/lib/offline/mutate';
 import { reloadMatchClean } from '@/lib/matchNav';
@@ -8,6 +8,7 @@ import Card from '@/components/ui/Card';
 import { Loader2, Minus, Plus, X, Trophy, Flag } from 'lucide-react';
 import type { Match, MatchScore, MatchPlayer } from '@/types';
 import PlayerSearchAndAdd, { type PlayerAddResult } from '@/components/PlayerSearchAndAdd';
+import { emitMatchScoreUpdate } from '@/lib/matchLiveBus';
 
 interface FootballPlayerStat {
   goals_scored: number;
@@ -64,6 +65,15 @@ export default function FootballScorer({
   const [gA, setGA] = useState(scoreA?.goals ?? 0);
   const [gB, setGB] = useState(scoreB?.goals ?? 0);
   const [busy, setBusy] = useState<string | null>(null);
+
+  // Keep MatchHero in sync with optimistic goal counts.
+  useEffect(() => {
+    emitMatchScoreUpdate(
+      match.id,
+      { ...(scoreA ?? {}), goals: gA, runs: 0, wickets: 0, overs_faced: 0, sets: scoreA?.sets },
+      { ...(scoreB ?? {}), goals: gB, runs: 0, wickets: 0, overs_faced: 0, sets: scoreB?.sets },
+    );
+  }, [match.id, gA, gB, scoreA, scoreB]);
 
   // Goal-attribution modal state
   const [scorerPickFor, setScorerPickFor] = useState<'a' | 'b' | null>(null);

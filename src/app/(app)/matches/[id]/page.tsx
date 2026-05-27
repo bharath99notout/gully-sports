@@ -1,10 +1,10 @@
 import { getServerAuth } from '@/lib/supabase/server';
 import { notFound } from 'next/navigation';
 import dynamic from 'next/dynamic';
-import SportBadge from '@/components/SportBadge';
 import MatchControls from './MatchControls';
 import ShareButton from '@/components/ShareButton';
 import MatchConfirmationPanel from './MatchConfirmationPanel';
+import MatchHero from './MatchHero';
 import { maybeSweepAutoConfirms } from '@/lib/matchConfirmationServer';
 import type { ConfirmationState } from '@/lib/matchConfirmation';
 import { Match, MatchScore, MatchPlayer, CricketPlayerStat } from '@/types';
@@ -230,34 +230,19 @@ export default async function MatchDetailPage({ params, searchParams }: Props) {
   );
 
   return (
-    <div className="max-w-2xl flex flex-col gap-6">
-      {/* Header */}
-      <div className="flex items-start justify-between">
-        <div>
-          <div className="flex items-center gap-2 mb-1">
-            <SportBadge sport={match.sport} />
-            <span className={`text-xs px-2 py-0.5 rounded-full font-medium border ${
-              match.status === 'live' ? 'bg-red-900/50 text-red-400 border-red-800' :
-              match.status === 'completed' ? 'bg-gray-800 text-gray-400 border-gray-700' :
-              'bg-blue-900/50 text-blue-400 border-blue-800'
-            }`}>
-              {match.status === 'live' ? '● LIVE' : match.status.toUpperCase()}
-            </span>
+    <div className="max-w-2xl flex flex-col gap-4 sm:gap-6">
+      {/* Hero scoreboard */}
+      <MatchHero
+        match={match as Match}
+        scoreA={scoreA}
+        scoreB={scoreB}
+        rightSlot={
+          <div className="flex items-center gap-1">
+            <MatchShareTrigger match={match as Match} scoreA={scoreA} scoreB={scoreB} />
+            {canControlLifecycle && <MatchControls match={match as Match} />}
           </div>
-          <h1 className="text-xl font-bold text-white">
-            {/^\d+$/.test(match.team_a_name.trim()) ? `Team ${match.team_a_name}` : match.team_a_name}
-            {' '}<span className="text-gray-500">vs</span>{' '}
-            {/^\d+$/.test(match.team_b_name.trim()) ? `Team ${match.team_b_name}` : match.team_b_name}
-          </h1>
-          {match.sport === 'cricket' && match.cricket_overs && (
-            <p className="text-sm text-gray-500 mt-0.5">{match.cricket_overs} overs</p>
-          )}
-        </div>
-        <div className="flex items-center gap-2 flex-wrap justify-end">
-          <MatchShareTrigger match={match as Match} scoreA={scoreA} scoreB={scoreB} />
-          {canControlLifecycle && <MatchControls match={match as Match} />}
-        </div>
-      </div>
+        }
+      />
 
       {/* Admin-only delete — only after the match has ended (not LIVE / upcoming). */}
       {viewerIsAdmin && match.status === 'completed' && (
@@ -315,7 +300,7 @@ export default async function MatchDetailPage({ params, searchParams }: Props) {
       )}
 
       {/* Scorer — anchor for admin &quot;Edit scores&quot; */}
-      <div id="match-scorecard" className="flex flex-col gap-6 scroll-mt-24">
+      <div id="match-scorecard" className="flex flex-col gap-4 sm:gap-6 scroll-mt-24">
         {match.sport === 'cricket' && (
           <CricketScorer
             match={match as Match}
@@ -385,20 +370,6 @@ export default async function MatchDetailPage({ params, searchParams }: Props) {
           />
         )}
       </div>
-
-      {/* Winner — use winner_team_name (works for ad-hoc matches too) */}
-      {match.status === 'completed' && (match.winner_team_name || match.winner_team_id) && (
-        <div className="bg-emerald-900/20 border border-emerald-800 rounded-xl p-4 text-center">
-          <p className="text-sm text-emerald-400 font-medium">🏆 Winner</p>
-          <p className="text-xl font-bold text-white mt-1">
-            {(() => {
-              const n = match.winner_team_name
-                ?? (match.winner_team_id === match.team_a_id ? match.team_a_name : match.team_b_name);
-              return n && /^\d+$/.test(n.trim()) ? `Team ${n}` : n;
-            })()}
-          </p>
-        </div>
-      )}
 
       <MatchPlayerImpactSection rows={impactRows} />
 

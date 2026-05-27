@@ -108,6 +108,18 @@ If you add a new top-level public asset (e.g. a TWA-related file), add it to the
 
 ## Workflow rules — Git push & deploy
 
+Default to doing routine local work without asking for step-by-step permission.
+This includes reading files, editing code/docs, running local dev servers, running
+local tests/lint/builds, creating local commits, and updating non-production
+project files.
+Do not ask before running local commands needed to diagnose or verify work.
+
+Ask the user before:
+- pushing to any remote branch or deploying/shipping to production
+- making a major architectural change
+- introducing a breaking change, destructive data change, or irreversible action
+- changing production credentials, Play Store release metadata, or production env vars
+
 **Never push to `origin/main` (or any remote) without explicit confirmation from the user in the same turn.** `main` auto-deploys to Vercel production, so every push is a prod release.
 
 - `git commit` is fine without asking — local commits are reversible.
@@ -190,6 +202,7 @@ Repeated UI fragments diverge over time: one search picks up phone-search, anoth
 | Component | Location | Use whenever you need to… |
 |---|---|---|
 | **`PlayerSearchAndAdd`** | [src/components/PlayerSearchAndAdd.tsx](src/components/PlayerSearchAndAdd.tsx) | Find an existing player by name **or** mobile, or create a new placeholder player (phone deduped via `/api/auth/create-placeholder-player`). Parent passes an `onAdd(playerId, displayName)` callback that handles the actual association (insert into `team_members`, `tournament_team_players`, `match_players`, etc). Used in: team detail page, tournament team rosters. **Match scorers should migrate to this next.** |
+| **`MatchHero`** | [src/app/(app)/matches/\[id\]/MatchHero.tsx](src/app/(app)/matches/[id]/MatchHero.tsx) | Scoreboard-style hero at the top of `/matches/[id]` — team-vs-team layout, sport-tinted strip, animated LIVE pulse, big tabular-nums score per sport (cricket runs/wkts/ov, football/foosball goals, set-sports sets[]), gold-star winner indicator, inline winner ribbon for completed matches. Client component; reads live score via `useLiveMatchScores`. Right-slot accepts share + lifecycle controls. |
 | **`GoogleSignInButton`** *(removed)* | — | Reserved spot — re-add only when you ship Google OAuth. |
 
 ### Endpoints that match this rule
@@ -205,6 +218,45 @@ Repeated UI fragments diverge over time: one search picks up phone-search, anoth
 - **First instance:** write inline. Don't preemptively extract — speculative components are usually wrong.
 - **Second instance** *or* **first time the inline copy will be visible to end users in two places:** stop, extract to `src/components/`, replace both with the shared component in the same change. Update this CLAUDE.md table.
 - **Never** ship "almost the same thing" twice. End users notice. Developers forget which copy to update.
+
+---
+
+## Mobile-first design rules
+
+Most users open this app on a 320–360px Android viewport. Every layout decision is evaluated there first.
+
+### Hard rules
+- **Grids must declare a mobile column count.** `grid sm:grid-cols-4` silently becomes 1-per-row below 640px — write `grid-cols-2 sm:grid-cols-4`, or use a stat-strip.
+- **Stat strip pattern** — for 3–4 small counters, use a single card with `divide-x`, not 4 separate cards:
+  ```tsx
+  <section className="grid grid-cols-N divide-x divide-gray-800 rounded-2xl border border-gray-800 bg-gray-900">
+    {/* <StatCell label="Students" value={n} /> — number on top, tiny uppercase label below */}
+  </section>
+  ```
+- **Section gap is `gap-4` on mobile**, not `gap-5`/`gap-6`. Mobile real estate is precious.
+- **Header buttons inside `flex-col` need `self-start`** — otherwise they stretch full-width on mobile.
+- **Two cards next to each other must look distinct.** Different accent (emerald = create/forms, sky = directory/people, amber = warnings/awards), different icon container. Two `gray-900 + border-gray-800 + same header layout` cards become invisible to each other.
+
+### Padding
+- Card body: `p-4` standard, `p-3` for compact list items.
+- List rows: `px-4 py-2.5` directory rows, `px-4 py-3` rows with secondary info.
+- Primary button: `px-4 py-2.5`. Chip: `px-3 py-1`.
+
+### Copy
+- Empty states: ≤8 words. ("No results yet · tap to add" beats a sentence.)
+- Skip explanatory subtitles unless they teach something. Icon + title is usually enough.
+- Don't narrate UI state in prose — show it.
+
+### Disclosure
+- Optional / power-user fields (link existing profile, advanced filters, grant access composer) collapse behind a tiny text button by default. The 80% path is the default state; the rest expands on demand.
+
+### Accent system
+| Accent | Use for |
+|---|---|
+| `emerald` (`emerald-500`/`emerald-950/20`) | Primary actions, create/edit forms, main brand |
+| `sky` (`sky-500`/`sky-950/30`) | Directory / people / access management |
+| `amber` (`amber-300`/`amber-950/30`) | Awards, medals, admin tags |
+| `rose`/`red` (`red-950/30`) | Errors, destructive actions |
 
 ---
 
@@ -229,6 +281,50 @@ Scoring works without internet. Every mutation in `Cricket/Badminton/Football/Ta
 - Multi-device offline scoring of the same match: last-writer-wins. We don't merge.
 - Match creation requires internet (the page that creates the match does several reads). Once a match exists, all subsequent scoring works offline.
 - Triggers (confirmation rows, notifications) only fire when the `matches.status='completed'` write reaches the server — i.e. when the queue drains. Notifications won't go out until reconnect.
+
+---
+
+## Live-score event bus — keeping MatchHero in sync (May 2026)
+
+**File:** [src/lib/matchLiveBus.ts](src/lib/matchLiveBus.ts)
+
+The match detail page renders a server-rendered `MatchHero` at the top and a sport-specific client scorer below. Each scorer holds its own optimistic `useState` for runs/goals/sets — when the user taps a run, only the scorer re-renders. Without coupling, the hero stays frozen at the page-load snapshot and looks "broken" while the score actually updates downstream.
+
+**Solution:** a tiny window-event bus, no React Context tree.
+- `emitMatchScoreUpdate(matchId, scoreA, scoreB)` — scorer dispatches `gs:match-score-update` on `window` whenever its local state changes.
+- `useLiveMatchScores(matchId, initialA, initialB)` — hero subscribes; filters by `matchId` so two open tabs on different matches don't cross-pollute; falls back to server-rendered initial scores on first paint.
+
+**Rules for new sport scorers:**
+- One `useEffect` per scorer that depends on the relevant local state (e.g. `[scoreA, scoreB]` for cricket, `[gA, gB]` for football/foosball, `[setsA, setsB]` for set-sports), calling `emitMatchScoreUpdate(match.id, …)`.
+- Synthesize a `LiveScore`-shaped object spreading `props.scoreA` plus the relevant overrides — *don't* invent new fields. `LiveScore` is `Pick<MatchScore, 'runs' | 'wickets' | 'overs_faced' | 'goals' | 'sets'> & Partial<MatchScore>`.
+- Don't read from the bus inside a scorer — only the hero (or anything *above* the scorer in the tree) subscribes.
+
+---
+
+## Pickups — Discover by day (May 2026)
+
+**Route:** `/pickups/discover` → [src/app/(app)/pickups/discover/page.tsx](src/app/(app)/pickups/discover/page.tsx)
+**Client component:** [src/app/(app)/pickups/discover/DiscoverByDay.tsx](src/app/(app)/pickups/discover/DiscoverByDay.tsx)
+
+Playo-style public browse for open pickups in the next 14 days (matches the backend's `PICKUP_START_MAX_DAYS_AHEAD` horizon). Three-layer filter:
+
+1. **Sport chip row** — horizontal scroll, single-select, "All" default.
+2. **Day chips** — sticky, horizontal scroll, "Today"/"Tomorrow" labels then weekday + date, count badge per chip. Default selection is derived during render (no setState-in-effect), so the first day with any pickups is auto-active.
+3. **Time-of-day buckets** — Morning (06–12), Afternoon (12–17), Evening (17–21), Night (21–06). Picks bucket from each pickup's `start_time` in the viewer's **local TZ**, not UTC (a 9pm pickup belongs to today, not tomorrow — same lesson as the `Asia/Kolkata` events fix).
+
+**Distance** is decorated client-side using `useGeolocation`; the server can't compute it. Each row shows sport, host name, ground, time + relative ("in 2h 14m"), slots-left, and a per-viewer Join/Pending/✓ In badge derived from `pickup.viewer_response`.
+
+`/pickups` (My Pickups) and the dashboard rail (`NearbyPickupsRail`) both link to `/pickups/discover`.
+
+---
+
+## Pickups — "Players going" social proof on detail (May 2026)
+
+**Route:** `/pickups/[id]` → [src/app/(app)/pickups/\[id\]/page.tsx](src/app/(app)/pickups/[id]/page.tsx) (inline `PlayersGoing` server component)
+
+Before the user taps "I'm in," they see the roster of who's confirmed — Playo-style social proof. Host is counted in the roster (they're playing too — fixes the old "1/2 filled" undercount). Each row: avatar (image or initial circle), name → linked to `/players/[id]`, mutual-match count or "Host" badge, trust score chip. Pending requests are shown as a count only ("+ 1 requesting to join · waiting on host") — names stay private until the host accepts.
+
+Zero new queries — reuses `getPickupResponses`, `countMutualMatches`, and `getTrustScoresForPlayers` data the detail page was already fetching. Sky accent per the design system (directory/people).
 
 ---
 

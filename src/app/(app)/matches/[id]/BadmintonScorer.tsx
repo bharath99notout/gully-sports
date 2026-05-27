@@ -1,12 +1,13 @@
 'use client';
 
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { offlineMutate } from '@/lib/offline/mutate';
 import { reloadMatchClean } from '@/lib/matchNav';
 import { Match, MatchScore, MatchPlayer } from '@/types';
 import { Minus, Plus, X, UserPlus } from 'lucide-react';
 import PlayerSearchAndAdd, { type PlayerAddResult } from '@/components/PlayerSearchAndAdd';
+import { emitMatchScoreUpdate } from '@/lib/matchLiveBus';
 
 interface Props {
   match: Match;
@@ -64,6 +65,21 @@ export default function BadmintonScorer({
     return Array.from({ length: totalSets }, (_, i) => src[i] ?? 0);
   });
   const [busy, setBusy] = useState(false);
+
+  // Broadcast optimistic set scores into MatchHero. Trim trailing zero-sets
+  // so the hero only shows games that have actually started.
+  useEffect(() => {
+    const trim = (arr: number[]) => {
+      let end = arr.length;
+      while (end > 0 && arr[end - 1] === 0) end--;
+      return arr.slice(0, end);
+    };
+    emitMatchScoreUpdate(
+      match.id,
+      { ...(scoreA ?? {}), sets: trim(setsA), runs: 0, wickets: 0, overs_faced: 0, goals: 0 },
+      { ...(scoreB ?? {}), sets: trim(setsB), runs: 0, wickets: 0, overs_faced: 0, goals: 0 },
+    );
+  }, [match.id, setsA, setsB, scoreA, scoreB]);
 
   // Player search/add — search + dedup + create-placeholder all live in
   // the shared PlayerSearchAndAdd component (CLAUDE.md "Reuse rule").

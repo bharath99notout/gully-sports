@@ -1,12 +1,13 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { offlineMutate } from '@/lib/offline/mutate';
 import { reloadMatchClean } from '@/lib/matchNav';
 import Card from '@/components/ui/Card';
 import { Loader2, Minus, Plus, Trophy, RotateCcw, Flag } from 'lucide-react';
 import type { Match, MatchScore, MatchPlayer } from '@/types';
+import { emitMatchScoreUpdate } from '@/lib/matchLiveBus';
 
 interface Props {
   match: Match;
@@ -47,6 +48,15 @@ export default function FoosballScorer({
   const [gA, setGA] = useState<number>(scoreA?.goals ?? 0);
   const [gB, setGB] = useState<number>(scoreB?.goals ?? 0);
   const [busy, setBusy] = useState<string | null>(null);
+
+  // Mirror optimistic games-won into the hero scoreboard.
+  useEffect(() => {
+    emitMatchScoreUpdate(
+      match.id,
+      { ...(scoreA ?? {}), goals: gA, runs: 0, wickets: 0, overs_faced: 0, sets: scoreA?.sets },
+      { ...(scoreB ?? {}), goals: gB, runs: 0, wickets: 0, overs_faced: 0, sets: scoreB?.sets },
+    );
+  }, [match.id, gA, gB, scoreA, scoreB]);
 
   const teamA = scoreA?.team_name ?? match.team_a_name;
   const teamB = scoreB?.team_name ?? match.team_b_name;

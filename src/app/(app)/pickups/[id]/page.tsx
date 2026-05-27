@@ -152,6 +152,18 @@ export default async function PickupDetailPage({ params }: Props) {
             </div>
           )}
 
+          {/* Players going — social proof before joining + roster after */}
+          <PlayersGoing
+            host={pickup.host}
+            hostTrust={hostTrustScore}
+            accepted={accepted}
+            pending={pending}
+            viewerId={user.id}
+            slotsTotal={pickup.slots_total}
+            mutualByJoinerId={mutualByJoinerId}
+            trustByJoinerId={trustByJoinerId}
+          />
+
           {/* Accepted joiner -> show host's phone for WhatsApp handoff */}
           {waHostHref && (
             <a
@@ -238,6 +250,100 @@ function Field({ icon, label, value, href }: {
   return href
     ? <a href={href} target="_blank" rel="noreferrer">{inner}</a>
     : <div>{inner}</div>;
+}
+
+type JoinerLite = { id: string; name: string; avatar_url: string | null };
+
+function PlayersGoing({
+  host, hostTrust, accepted, pending, viewerId, slotsTotal,
+  mutualByJoinerId, trustByJoinerId,
+}: {
+  host: JoinerLite;
+  hostTrust: import('@/lib/trustScore').PlayerTrustScore | undefined;
+  accepted: Array<{ joiner: JoinerLite }>;
+  pending:  Array<{ joiner: JoinerLite }>;
+  viewerId: string;
+  slotsTotal: number;
+  mutualByJoinerId: Record<string, number>;
+  trustByJoinerId:  Record<string, import('@/lib/trustScore').PlayerTrustScore | undefined>;
+}) {
+  // Host is implicitly playing; show them first in the roster.
+  const going: Array<{ player: JoinerLite; role: 'host' | 'player' }> = [
+    { player: host, role: 'host' },
+    ...accepted.map(r => ({ player: r.joiner, role: 'player' as const })),
+  ];
+  const goingCount = going.length;
+  const slotsLeft = Math.max(0, slotsTotal + 1 - goingCount); // +1 to include host
+
+  return (
+    <div className="rounded-xl border border-sky-900/40 bg-sky-950/15 px-3 py-2.5">
+      <div className="flex items-center justify-between mb-2">
+        <p className="text-[11px] font-semibold uppercase tracking-wider text-sky-300">
+          Players going · {goingCount}
+        </p>
+        {slotsLeft > 0 && (
+          <p className="text-[11px] text-gray-500">
+            {slotsLeft} slot{slotsLeft === 1 ? '' : 's'} open
+          </p>
+        )}
+      </div>
+
+      <ul className="flex flex-col">
+        {going.map(({ player, role }) => {
+          const isViewer = player.id === viewerId;
+          const mutuals  = role === 'player' ? (mutualByJoinerId[player.id] ?? 0) : 0;
+          const trust    = role === 'host' ? hostTrust : trustByJoinerId[player.id];
+          return (
+            <li key={player.id} className="flex items-center gap-3 py-1.5">
+              <PlayerAvatar player={player} />
+              <div className="flex-1 min-w-0">
+                <Link
+                  href={`/players/${player.id}`}
+                  className="text-sm font-semibold text-white hover:text-sky-300 hover:underline truncate inline-block max-w-full align-middle"
+                >
+                  {player.name}
+                </Link>
+                {isViewer && <span className="ml-1 text-[11px] text-gray-500">(you)</span>}
+                <p className="text-[11px] text-gray-400 truncate">
+                  {role === 'host'
+                    ? 'Host'
+                    : mutuals > 0
+                      ? `${mutuals} mutual match${mutuals === 1 ? '' : 'es'}`
+                      : 'Joined'}
+                </p>
+              </div>
+              {trust && <TrustScoreChip trustScore={trust} />}
+            </li>
+          );
+        })}
+      </ul>
+
+      {pending.length > 0 && (
+        <p className="mt-2 text-[11px] text-gray-500 italic">
+          + {pending.length} requesting to join · waiting on host
+        </p>
+      )}
+    </div>
+  );
+}
+
+function PlayerAvatar({ player }: { player: JoinerLite }) {
+  const initial = (player.name?.trim()?.[0] ?? '?').toUpperCase();
+  if (player.avatar_url) {
+    return (
+      // eslint-disable-next-line @next/next/no-img-element
+      <img
+        src={player.avatar_url}
+        alt=""
+        className="h-8 w-8 rounded-full object-cover ring-1 ring-sky-900/40 shrink-0"
+      />
+    );
+  }
+  return (
+    <span className="h-8 w-8 rounded-full bg-sky-500/15 text-sky-300 ring-1 ring-sky-900/40 flex items-center justify-center text-xs font-bold shrink-0">
+      {initial}
+    </span>
+  );
 }
 
 function StatusBadge({ status }: { status: string }) {

@@ -21,12 +21,13 @@ import type { PickupRequestWithMeta } from '@/types';
 export default function NearbyPickupsRail({ viewerId }: { viewerId: string }) {
   const geo = useGeolocation();
   const [items, setItems] = useState<PickupRequestWithMeta[] | null>(null);
-  const [loading, setLoading] = useState(false);
+  // Derived: we're "loading" whenever GPS resolved but the fetch hasn't.
+  // Avoids a redundant setState-in-effect and keeps the render pure.
+  const loading = !!geo.fix && items === null;
 
   useEffect(() => {
     if (!geo.fix) return;
     const ctrl = new AbortController();
-    setLoading(true);
     fetch(`/api/pickups/nearby?lat=${geo.fix.lat}&lng=${geo.fix.lng}&radius_km=10`, {
       signal: ctrl.signal,
     })
@@ -34,8 +35,7 @@ export default function NearbyPickupsRail({ viewerId }: { viewerId: string }) {
       .then((data: { items: PickupRequestWithMeta[] }) => {
         setItems(data.items ?? []);
       })
-      .catch(() => {})
-      .finally(() => setLoading(false));
+      .catch(() => {});
     return () => ctrl.abort();
   }, [geo.fix]);
 
@@ -101,11 +101,16 @@ function Header({ children, showAction = false }: { children: React.ReactNode; s
           <span className="w-2 h-2 bg-amber-400 rounded-full animate-pulse" />
           <h2 className="text-sm font-semibold text-white">Need Players Now</h2>
         </div>
-        {showAction && (
-          <Link href="/pickups/new" className="inline-flex items-center gap-1 text-xs text-emerald-400 hover:underline">
-            <Plus size={12} /> Post yours
+        <div className="flex items-center gap-3 text-xs">
+          <Link href="/pickups/discover" className="text-gray-400 hover:text-emerald-400 hover:underline">
+            Browse by day →
           </Link>
-        )}
+          {showAction && (
+            <Link href="/pickups/new" className="inline-flex items-center gap-1 text-emerald-400 hover:underline">
+              <Plus size={12} /> Post yours
+            </Link>
+          )}
+        </div>
       </div>
       {children}
     </div>

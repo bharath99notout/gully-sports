@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { offlineMutate } from '@/lib/offline/mutate';
 import { reloadMatchClean } from '@/lib/matchNav';
@@ -8,6 +8,7 @@ import Card from '@/components/ui/Card';
 import { Plus, X, ChevronDown, Trophy, Target } from 'lucide-react';
 import { Match, MatchScore, MatchPlayer, CricketPlayerStat } from '@/types';
 import PlayerSearchAndAdd, { type PlayerAddResult } from '@/components/PlayerSearchAndAdd';
+import { emitMatchScoreUpdate } from '@/lib/matchLiveBus';
 
 interface Props {
   match: Match;
@@ -83,6 +84,12 @@ export default function CricketScorer({
   const [stats, setStats] = useState<Record<string, CricketPlayerStat>>(initStats);
   const [scoreA, setScoreA] = useState(initA);
   const [scoreB, setScoreB] = useState(initB);
+
+  // Broadcast every optimistic score change so MatchHero (rendered above)
+  // stays in sync with the scorer's local state.
+  useEffect(() => {
+    emitMatchScoreUpdate(match.id, scoreA, scoreB);
+  }, [match.id, scoreA, scoreB]);
 
   const [battingTeam, setBattingTeamState] = useState<string | null>(match.batting_team_name ?? null);
   const [strikerId, setStrikerId] = useState<string | null>(match.striker_id ?? null);
@@ -430,58 +437,53 @@ export default function CricketScorer({
         </div>
       )}
 
-      {/* ── Score cards (IPL-style: BATTING / YET TO BAT / INNINGS 1) ── */}
-      <div className="grid grid-cols-2 gap-3">
-        {([
-          { score: scoreA, team: match.team_a_name },
-          { score: scoreB, team: match.team_b_name },
-        ] as { score: MatchScore | null; team: string }[]).map(({ score, team }) => {
-          const isBatting = battingTeam === team;
-          // True if this team has actually batted at any point (1st innings team
-          // post-switch). When `battingTeam` is set and this isn't it, it's
-          // either bowling now (1st innings) or already finished (2nd innings).
-          const hasBatted = (score?.runs ?? 0) > 0 || (score?.overs_faced ?? 0) > 0;
-          // In 2nd innings, the OTHER team has already batted.
-          const finishedBatting = !isBatting && innings === 2 && hasBatted;
-          // 1st innings, not currently batting → "yet to bat".
-          const yetToBat = !isBatting && !finishedBatting && !hasBatted;
+      {/* ── Innings status strip — only meaningful while live; hero owns the
+          final score on completed matches, so we hide this then. ── */}
+      {match.status === 'live' && (
+        <div className="grid grid-cols-2 gap-3">
+          {([
+            { score: scoreA, team: match.team_a_name },
+            { score: scoreB, team: match.team_b_name },
+          ] as { score: MatchScore | null; team: string }[]).map(({ score, team }) => {
+            const isBatting = battingTeam === team;
+            const hasBatted = (score?.runs ?? 0) > 0 || (score?.overs_faced ?? 0) > 0;
+            const finishedBatting = !isBatting && innings === 2 && hasBatted;
+            const yetToBat = !isBatting && !finishedBatting && !hasBatted;
 
-          return (
-            <Card key={team} padding="md"
-              className={isBatting ? 'border-emerald-700 bg-emerald-950/15' : ''}>
-              <div className="flex items-center justify-between gap-2 mb-1">
-                <p className="text-xs text-gray-400 truncate">{teamLabel(team)}</p>
-                {isBatting && (
-                  <span className="flex items-center gap-1 text-[10px] text-emerald-400 font-bold uppercase tracking-wider shrink-0">
-                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                    Batting
-                  </span>
-                )}
-                {finishedBatting && (
-                  <span className="text-[10px] text-gray-500 font-semibold uppercase tracking-wider shrink-0">
-                    Innings 1
-                  </span>
-                )}
-                {yetToBat && (
-                  <span className="text-[10px] text-gray-500 font-semibold uppercase tracking-wider shrink-0">
-                    Yet to bat
-                  </span>
-                )}
-              </div>
-              <div className={`text-3xl font-bold ${yetToBat ? 'text-gray-700' : 'text-white'}`}>
-                {yetToBat ? '—/—' : `${score?.runs ?? 0}/${score?.wickets ?? 0}`}
-              </div>
-              <div className="text-xs text-gray-500 mt-0.5">
-                {yetToBat
-                  ? 'Innings 2'
-                  : isBatting
-                    ? `${score?.overs_faced ?? 0} ov · CRR ${crr(score?.runs ?? 0, score?.overs_faced ?? 0)}`
-                    : `${score?.overs_faced ?? 0} ov`}
-              </div>
-            </Card>
-          );
-        })}
-      </div>
+            return (
+              <Card key={team} padding="md"
+                className={isBatting ? 'border-emerald-700 bg-emerald-950/15' : ''}>
+                <div className="flex items-center justify-between gap-2">
+                  <p className="text-xs text-gray-400 truncate">{teamLabel(team)}</p>
+                  {isBatting && (
+                    <span className="flex items-center gap-1 text-[10px] text-emerald-400 font-bold uppercase tracking-wider shrink-0">
+                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                      Batting
+                    </span>
+                  )}
+                  {finishedBatting && (
+                    <span className="text-[10px] text-gray-500 font-semibold uppercase tracking-wider shrink-0">
+                      Innings 1
+                    </span>
+                  )}
+                  {yetToBat && (
+                    <span className="text-[10px] text-gray-500 font-semibold uppercase tracking-wider shrink-0">
+                      Yet to bat
+                    </span>
+                  )}
+                </div>
+                <div className="text-xs text-gray-500 mt-1.5">
+                  {yetToBat
+                    ? 'Innings 2'
+                    : isBatting
+                      ? `${score?.overs_faced ?? 0} ov · CRR ${crr(score?.runs ?? 0, score?.overs_faced ?? 0)}`
+                      : `${score?.overs_faced ?? 0} ov`}
+                </div>
+              </Card>
+            );
+          })}
+        </div>
+      )}
 
       {/* ── Chase target banner (2nd innings) ── */}
       {canEdit && scoringActive && innings === 2 && battingTeam && targetRuns !== null && (
