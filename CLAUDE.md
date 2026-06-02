@@ -538,6 +538,11 @@ Custom keyframes (used by TrophyBanner):
 ```
 NEXT_PUBLIC_SUPABASE_URL=https://pkpuaznejjlyelgjzbst.supabase.co
 NEXT_PUBLIC_SUPABASE_ANON_KEY=sb_publishable_C-1TVbEWXO7OTVf6sXjQEA_iKsU-MUx
+
+# Optional — only needed for the experimental Hugging Face engine on the
+# Bowling Analyzer. The token stays server-side (never shipped to the
+# browser). Get a free one at https://huggingface.co/settings/tokens.
+HUGGINGFACE_API_TOKEN=hf_xxx
 ```
 
 Must be set in Vercel dashboard under Settings → Environment Variables.

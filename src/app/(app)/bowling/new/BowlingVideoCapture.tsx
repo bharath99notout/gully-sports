@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { Video, Upload, Circle, Square, RotateCcw, ArrowLeft, Sparkles, Hand } from 'lucide-react';
 import { createBowlingDelivery } from '@/app/actions/bowlingDeliveries';
 import { analyzeDelivery, type AnalysisResult } from '@/lib/bowlingAnalysis/analyzer';
+import { analyzeDeliveryWithHF } from '@/lib/bowlingAnalysis/hfAnalyzer';
 
 /**
  * Bowling Analyzer capture surface.
@@ -24,11 +25,14 @@ import { analyzeDelivery, type AnalysisResult } from '@/lib/bowlingAnalysis/anal
 
 type Mode  = 'ai' | 'manual';
 type Phase = 'source' | 'recording' | 'review';
+type Engine = 'mediapipe' | 'huggingface';
 type AiState =
   | { kind: 'idle' }
   | { kind: 'running'; progress: number }
   | { kind: 'done'; result: AnalysisResult }
   | { kind: 'error'; message: string };
+
+const HF_DEFAULT_MODEL = 'facebook/detr-resnet-50';
 
 const PITCH_PRESETS = [
   { label: 'Full pitch', meters: 20.12 },
@@ -45,7 +49,9 @@ function fmtClock(seconds: number): string {
 
 export default function BowlingVideoCapture() {
   const router = useRouter();
-  const [mode, setMode]   = useState<Mode>('ai');
+  const [mode, setMode]     = useState<Mode>('ai');
+  const [engine, setEngine] = useState<Engine>('mediapipe');
+  const [hfModel, setHfModel] = useState<string>(HF_DEFAULT_MODEL);
   const [phase, setPhase] = useState<Phase>('source');
   const [distance, setDistance] = useState<number>(20.12);
 
@@ -157,11 +163,17 @@ export default function BowlingVideoCapture() {
     }
     setAi({ kind: 'running', progress: 0 });
     try {
-      const result = await analyzeDelivery(video, {
-        distanceM: distance,
-        sampleIntervalMs: 50,
-        onProgress: p => setAi({ kind: 'running', progress: p }),
-      });
+      const result = engine === 'huggingface'
+        ? await analyzeDeliveryWithHF(video, {
+            distanceM: distance,
+            model: hfModel,
+            onProgress: p => setAi({ kind: 'running', progress: p }),
+          })
+        : await analyzeDelivery(video, {
+            distanceM: distance,
+            sampleIntervalMs: 50,
+            onProgress: p => setAi({ kind: 'running', progress: p }),
+          });
       setAi({ kind: 'done', result });
 
       // Pre-fill marks from AI results so the manual UI can take over cleanly
@@ -237,6 +249,16 @@ export default function BowlingVideoCapture() {
         disabled={phase === 'recording'}
       />
 
+      {mode === 'ai' && (
+        <EnginePicker
+          engine={engine}
+          onChange={e => { setEngine(e); setAi({ kind: 'idle' }); }}
+          hfModel={hfModel}
+          onHfModelChange={setHfModel}
+          disabled={phase === 'recording'}
+        />
+      )}
+
       <DistancePicker value={distance} onChange={setDistance} disabled={phase === 'recording'} />
 
       {phase === 'source' && (
@@ -304,6 +326,76 @@ function ModeToggle({
         label="Manual marks"
         sub="You tap release + pitch"
       />
+    </div>
+  );
+}
+
+function EnginePicker({
+  engine, onChange, hfModel, onHfModelChange, disabled,
+}: {
+  engine: Engine;
+  onChange: (e: Engine) => void;
+  hfModel: string;
+  onHfModelChange: (m: string) => void;
+  disabled: boolean;
+}) {
+  return (
+    <div className="rounded-2xl border border-gray-800 bg-gray-900 p-3 flex flex-col gap-2">
+      <p className="text-[11px] font-semibold uppercase tracking-wider text-gray-400">
+        Detection engine
+      </p>
+      <div className="flex gap-2">
+        <button
+          type="button"
+          disabled={disabled}
+          onClick={() => onChange('mediapipe')}
+          className={`flex-1 rounded-xl px-3 py-2 text-left transition-colors disabled:opacity-50 ${
+            engine === 'mediapipe'
+              ? 'bg-emerald-500 text-gray-950'
+              : 'bg-gray-800 text-gray-300 hover:bg-gray-700'
+          }`}
+        >
+          <span className="block text-xs font-bold">MediaPipe</span>
+          <span className={`block text-[10px] mt-0.5 ${engine === 'mediapipe' ? 'text-gray-900/70' : 'text-gray-500'}`}>
+            In-browser · fast · free
+          </span>
+        </button>
+        <button
+          type="button"
+          disabled={disabled}
+          onClick={() => onChange('huggingface')}
+          className={`flex-1 rounded-xl px-3 py-2 text-left transition-colors disabled:opacity-50 ${
+            engine === 'huggingface'
+              ? 'bg-sky-500 text-gray-950'
+              : 'bg-gray-800 text-gray-300 hover:bg-gray-700'
+          }`}
+        >
+          <span className="block text-xs font-bold">Hugging Face</span>
+          <span className={`block text-[10px] mt-0.5 ${engine === 'huggingface' ? 'text-gray-900/70' : 'text-gray-500'}`}>
+            Cloud · experimental
+          </span>
+        </button>
+      </div>
+      {engine === 'huggingface' && (
+        <div className="flex flex-col gap-1.5">
+          <label className="text-[10px] font-semibold uppercase tracking-wider text-gray-500">
+            HF model id
+          </label>
+          <input
+            type="text"
+            value={hfModel}
+            disabled={disabled}
+            onChange={e => onHfModelChange(e.target.value)}
+            placeholder="facebook/detr-resnet-50"
+            className="rounded-lg bg-gray-800 border border-gray-700 px-2 py-1.5 text-xs text-gray-100 placeholder-gray-500 disabled:opacity-50 focus:outline-none focus:border-sky-500"
+          />
+          <p className="text-[10px] text-gray-500 leading-relaxed">
+            Needs <code className="text-sky-300">HUGGINGFACE_API_TOKEN</code> in server env. Free
+            tier ~30 RPM — analysis takes 30–60s per video. Try cricket-specific community models
+            here for sharper ball detection.
+          </p>
+        </div>
+      )}
     </div>
   );
 }
