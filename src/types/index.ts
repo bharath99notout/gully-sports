@@ -234,7 +234,8 @@ export interface PickupRequestWithMeta extends PickupRequest {
 // ── Bowling Analyzer (V1: manual-assist speed) ─────────────────────────────
 
 export type BowlingPrivacyState = 'private' | 'match' | 'public';
-export type BowlingRecordedVia  = 'manual_tap' | 'camera_cv' | 'radar' | 'imported';
+export type BowlingRecordedVia  = 'manual_tap' | 'video_mark' | 'camera_cv' | 'radar' | 'imported';
+export type BowlingActionClass  = 'side_on' | 'front_on' | 'mixed' | 'unknown';
 
 export interface BowlingDelivery {
   id: string;
@@ -249,6 +250,12 @@ export interface BowlingDelivery {
   speed_is_outlier: boolean;
   privacy_state: BowlingPrivacyState;
   note: string | null;
+  // Video-mark fields (nullable — only set when recorded_via='video_mark')
+  release_ms:    number | null;
+  pitch_ms:      number | null;
+  arm_angle_deg: number | null;
+  action_class:  BowlingActionClass | null;
+  thumbnail_url: string | null;
 }
 
 /** What the "Bowling DNA" card needs — rolling avg + peak across the

@@ -2,7 +2,9 @@
 
 import { revalidatePath } from 'next/cache';
 import { getServerAuth } from '@/lib/supabase/server';
-import type { BowlingDelivery, BowlingDna, BowlingPrivacyState } from '@/types';
+import type {
+  BowlingDelivery, BowlingDna, BowlingPrivacyState, BowlingRecordedVia, BowlingActionClass,
+} from '@/types';
 
 type ActionResult<T = undefined> =
   | { ok: true; data: T }
@@ -23,6 +25,13 @@ export async function createBowlingDelivery(input: {
   overIndex?: number | null;
   privacyState?: BowlingPrivacyState;
   note?: string | null;
+  recordedVia?: BowlingRecordedVia;
+  // Optional video-mark metadata
+  releaseMs?:    number | null;
+  pitchMs?:      number | null;
+  armAngleDeg?:  number | null;
+  actionClass?:  BowlingActionClass | null;
+  thumbnailUrl?: string | null;
 }): Promise<ActionResult<{ delivery: BowlingDelivery }>> {
   const { supabase, user } = await getServerAuth();
   if (!user) return { ok: false, error: 'Sign in to record a delivery' };
@@ -32,7 +41,7 @@ export async function createBowlingDelivery(input: {
   if (!Number.isFinite(dist) || dist <= 0) return { ok: false, error: 'Distance must be positive' };
   if (!Number.isFinite(dur)  || dur  <= 0) return { ok: false, error: 'Duration must be positive' };
   if (dur < MIN_DURATION_MS || dur > MAX_DURATION_MS) {
-    return { ok: false, error: 'That tap timing looks off — try again' };
+    return { ok: false, error: 'That mark timing looks off — try again' };
   }
 
   const speedKmh = Math.round(((dist / (dur / 1000)) * 3.6) * 10) / 10;
@@ -44,13 +53,18 @@ export async function createBowlingDelivery(input: {
       bowler_id:        user.id,
       match_id:         input.matchId ?? null,
       over_index:       input.overIndex ?? null,
-      recorded_via:     'manual_tap',
+      recorded_via:     input.recordedVia ?? 'manual_tap',
       distance_m:       dist,
       duration_ms:      Math.round(dur),
       speed_kmh:        speedKmh,
       speed_is_outlier: isOutlier,
       privacy_state:    input.privacyState ?? 'private',
       note:             input.note ?? null,
+      release_ms:       input.releaseMs    ?? null,
+      pitch_ms:         input.pitchMs      ?? null,
+      arm_angle_deg:    input.armAngleDeg  ?? null,
+      action_class:     input.actionClass  ?? null,
+      thumbnail_url:    input.thumbnailUrl ?? null,
     })
     .select('*')
     .single();

@@ -113,15 +113,21 @@ function Stat({ label, value, unit, accent }: {
 }
 
 function DeliveryRow({ delivery, excluded }: { delivery: BowlingDelivery; excluded?: boolean }) {
+  const isVideo = delivery.recorded_via === 'video_mark';
   return (
     <div className={`flex items-center justify-between gap-3 rounded-xl border px-4 py-2.5 ${
       excluded ? 'border-rose-900/40 bg-rose-950/15' : 'border-gray-800 bg-gray-900'
     }`}>
-      <div className="flex items-baseline gap-2 min-w-0">
+      <div className="flex items-baseline gap-2 min-w-0 flex-wrap">
         <span className={`text-xl font-bold tabular-nums ${excluded ? 'text-rose-300 line-through' : 'text-white'}`}>
           {delivery.speed_kmh.toFixed(1)}
         </span>
         <span className="text-[11px] text-gray-500">km/h</span>
+        {isVideo && (
+          <span className="text-[10px] uppercase tracking-wider font-bold text-sky-300 bg-sky-500/10 ring-1 ring-sky-500/30 rounded-full px-1.5 py-0.5">
+            Video
+          </span>
+        )}
         <span className="text-[11px] text-gray-500 truncate ml-1">
           · {delivery.distance_m.toFixed(2)} m · {delivery.duration_ms} ms
         </span>

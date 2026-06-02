@@ -2,7 +2,7 @@ import { redirect } from 'next/navigation';
 import Link from 'next/link';
 import { ArrowLeft } from 'lucide-react';
 import { getServerAuth } from '@/lib/supabase/server';
-import BowlingSpeedCapture from './BowlingSpeedCapture';
+import BowlingVideoCapture from './BowlingVideoCapture';
 
 export const metadata = {
   title: 'Capture bowling speed — GullySports',
@@ -19,9 +19,9 @@ export default async function NewBowlingDeliveryPage() {
       </Link>
       <div>
         <h1 className="text-2xl font-bold text-white">Capture a delivery</h1>
-        <p className="text-sm text-gray-500 mt-0.5">Two taps. Release → bounce. We do the math.</p>
+        <p className="text-sm text-gray-500 mt-0.5">Record or upload a clip. Mark release and pitch. See your km/h.</p>
       </div>
-      <BowlingSpeedCapture />
+      <BowlingVideoCapture />
     </div>
   );
 }
