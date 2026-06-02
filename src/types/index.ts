@@ -9,6 +9,9 @@ export interface Profile {
   /** UPI VPA (e.g. 9876543210@ybl). Used by event cost split for tap-to-pay. */
   upi_vpa?: string | null;
   created_at: string;
+  last_seen_at?: string | null;
+  last_login_at?: string | null;
+  is_admin?: boolean;
 }
 
 export interface Team {
@@ -226,4 +229,33 @@ export interface PickupRequestWithMeta extends PickupRequest {
   distance_km: number | null;
   /** The viewer's own response (if any) to this pickup. */
   viewer_response: PickupResponse | null;
+}
+
+// ── Bowling Analyzer (V1: manual-assist speed) ─────────────────────────────
+
+export type BowlingPrivacyState = 'private' | 'match' | 'public';
+export type BowlingRecordedVia  = 'manual_tap' | 'camera_cv' | 'radar' | 'imported';
+
+export interface BowlingDelivery {
+  id: string;
+  bowler_id: string;
+  match_id: string | null;
+  over_index: number | null;
+  recorded_at: string;
+  recorded_via: BowlingRecordedVia;
+  distance_m: number;
+  duration_ms: number;
+  speed_kmh: number;
+  speed_is_outlier: boolean;
+  privacy_state: BowlingPrivacyState;
+  note: string | null;
+}
+
+/** What the "Bowling DNA" card needs — rolling avg + peak across the
+ *  bowler's non-outlier deliveries. Single shape so the UI doesn't have to
+ *  recompute. */
+export interface BowlingDna {
+  delivery_count: number;
+  peak_kmh: number | null;
+  rolling_avg_kmh: number | null;
 }

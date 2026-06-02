@@ -325,6 +325,19 @@ export default async function DashboardPage() {
         ))}
       </div>
 
+      <Link
+        href="/bowling/new"
+        className="flex items-center justify-between gap-3 rounded-2xl border border-amber-900/50 bg-amber-950/15 hover:bg-amber-950/30 hover:border-amber-700 px-4 py-3 transition-colors"
+      >
+        <div className="min-w-0">
+          <p className="text-sm font-semibold text-amber-200">Bowling speed gun</p>
+          <p className="text-[11px] text-gray-400 mt-0.5">Two taps. Release → bounce. See your km/h.</p>
+        </div>
+        <span className="text-xs font-bold uppercase tracking-wider text-amber-300 shrink-0">
+          Try it →
+        </span>
+      </Link>
+
       {/* Live now — only user's live matches */}
       {liveMatches && liveMatches.length > 0 && (
         <div>
