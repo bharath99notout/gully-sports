@@ -2,33 +2,41 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Video, Upload, Circle, Square, RotateCcw, ArrowLeft } from 'lucide-react';
+import { Video, Upload, Circle, Square, RotateCcw, ArrowLeft, Sparkles, Hand } from 'lucide-react';
 import { createBowlingDelivery } from '@/app/actions/bowlingDeliveries';
+import { analyzeDelivery, type AnalysisResult } from '@/lib/bowlingAnalysis/analyzer';
 
 /**
- * Video-based capture for the Bowling Analyzer.
+ * Bowling Analyzer capture surface.
  *
- * Pipeline:
- *   1. SOURCE  — user records via getUserMedia/MediaRecorder OR uploads a
- *      pre-recorded clip (e.g. their phone's native slo-mo from gallery).
- *   2. SCRUB   — clip plays in an inline <video> the user can scrub.
- *   3. MARK    — two buttons capture `videoEl.currentTime` at release and
- *      pitch. Frame-precise — no human reaction-time error like a live tap.
- *   4. COMPUTE — speed = distance / (pitch − release).
- *   5. SAVE    — persists the marks + speed to bowling_deliveries via the
- *      server action.
+ * Two modes user can pick at the top:
+ *   • AI auto-detect — pose finds release; object detector tracks the
+ *     "sports ball" class and infers bounce from the trajectory.
+ *   • Manual marks — user scrubs and taps release + pitch on the timeline.
  *
- * Action analysis (arm angle, side-on/front-on) needs MediaPipe Pose on the
- * release frame. Scaffolded but stubbed in this commit — see TODO below.
+ * AI is a "best effort" path — gully cricket video is messy. When the
+ * analyzer returns low confidence we silently fall back to a hybrid mode:
+ * release pre-filled from AI, user marks the bounce.
+ *
+ * Speed is computed off the video's own timestamps either way — frame
+ * precise, no live-tap reaction-time error.
  */
 
+type Mode  = 'ai' | 'manual';
 type Phase = 'source' | 'recording' | 'review';
+type AiState =
+  | { kind: 'idle' }
+  | { kind: 'running'; progress: number }
+  | { kind: 'done'; result: AnalysisResult }
+  | { kind: 'error'; message: string };
 
 const PITCH_PRESETS = [
   { label: 'Full pitch', meters: 20.12 },
   { label: 'Half pitch', meters: 11.0  },
   { label: 'Net / short', meters: 14.0 },
 ];
+
+const AI_CONFIDENCE_OK = 0.35; // below this we fall back to user-marks-bounce
 
 function fmtClock(seconds: number): string {
   if (!Number.isFinite(seconds) || seconds < 0) return '0.00s';
@@ -37,14 +45,15 @@ function fmtClock(seconds: number): string {
 
 export default function BowlingVideoCapture() {
   const router = useRouter();
+  const [mode, setMode]   = useState<Mode>('ai');
   const [phase, setPhase] = useState<Phase>('source');
   const [distance, setDistance] = useState<number>(20.12);
 
   // Live recording
-  const previewRef = useRef<HTMLVideoElement | null>(null);
-  const streamRef  = useRef<MediaStream | null>(null);
+  const previewRef  = useRef<HTMLVideoElement | null>(null);
+  const streamRef   = useRef<MediaStream | null>(null);
   const recorderRef = useRef<MediaRecorder | null>(null);
-  const chunksRef  = useRef<Blob[]>([]);
+  const chunksRef   = useRef<Blob[]>([]);
   const [recError, setRecError] = useState<string | null>(null);
 
   // Review
@@ -53,29 +62,36 @@ export default function BowlingVideoCapture() {
   const [releaseSec, setReleaseSec] = useState<number | null>(null);
   const [pitchSec,   setPitchSec]   = useState<number | null>(null);
 
+  // AI
+  const [ai, setAi] = useState<AiState>({ kind: 'idle' });
+
   // Save
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
 
-  // ── lifecycle ────────────────────────────────────────────────────────────
+  // ── lifecycle ───────────────────────────────────────────────────────────────
   useEffect(() => {
     return () => {
-      // Free the camera stream + the object URL if we created one.
       streamRef.current?.getTracks().forEach(t => t.stop());
       if (clipUrl) URL.revokeObjectURL(clipUrl);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // ── recording ────────────────────────────────────────────────────────────
+  // Kick off AI analysis automatically once the clip is ready in AI mode.
+  useEffect(() => {
+    if (phase !== 'review' || mode !== 'ai' || !clipUrl) return;
+    if (ai.kind !== 'idle') return;
+    runAi();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [phase, mode, clipUrl]);
+
+  // ── recording ───────────────────────────────────────────────────────────────
   async function startRecording() {
     setRecError(null);
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
-        video: {
-          facingMode: { ideal: 'environment' }, // back camera on phone
-          frameRate: { ideal: 60 },             // ask for high FPS where available
-        },
+        video: { facingMode: { ideal: 'environment' }, frameRate: { ideal: 60 } },
         audio: false,
       });
       streamRef.current = stream;
@@ -93,7 +109,6 @@ export default function BowlingVideoCapture() {
         const url = URL.createObjectURL(blob);
         setClipUrl(url);
         setPhase('review');
-        // tracks are stopped below once we transition out of recording
       };
       recorderRef.current = rec;
       rec.start();
@@ -117,33 +132,53 @@ export default function BowlingVideoCapture() {
     return null;
   }
 
-  // ── upload ───────────────────────────────────────────────────────────────
+  // ── upload ──────────────────────────────────────────────────────────────────
   function onPickFile(e: React.ChangeEvent<HTMLInputElement>) {
     const f = e.target.files?.[0];
     if (!f) return;
     if (clipUrl) URL.revokeObjectURL(clipUrl);
-    const url = URL.createObjectURL(f);
-    setClipUrl(url);
+    setClipUrl(URL.createObjectURL(f));
     setReleaseSec(null);
     setPitchSec(null);
+    setAi({ kind: 'idle' });
     setPhase('review');
   }
 
-  // ── marks ────────────────────────────────────────────────────────────────
-  function markRelease() {
-    const t = reviewRef.current?.currentTime ?? 0;
-    setReleaseSec(t);
-  }
-  function markPitch() {
-    const t = reviewRef.current?.currentTime ?? 0;
-    setPitchSec(t);
-  }
-  function clearMarks() {
-    setReleaseSec(null);
-    setPitchSec(null);
+  // ── AI flow ─────────────────────────────────────────────────────────────────
+  async function runAi() {
+    if (!reviewRef.current) return;
+    const video = reviewRef.current;
+    // Make sure metadata is loaded so we know duration.
+    if (Number.isNaN(video.duration)) {
+      await new Promise<void>(r => {
+        const fn = () => { video.removeEventListener('loadedmetadata', fn); r(); };
+        video.addEventListener('loadedmetadata', fn);
+      });
+    }
+    setAi({ kind: 'running', progress: 0 });
+    try {
+      const result = await analyzeDelivery(video, {
+        distanceM: distance,
+        sampleIntervalMs: 50,
+        onProgress: p => setAi({ kind: 'running', progress: p }),
+      });
+      setAi({ kind: 'done', result });
+
+      // Pre-fill marks from AI results so the manual UI can take over cleanly
+      // if confidence is low or the user wants to nudge.
+      if (result.releaseMs != null) setReleaseSec(result.releaseMs / 1000);
+      if (result.bounceMs  != null) setPitchSec(result.bounceMs  / 1000);
+    } catch (e) {
+      setAi({ kind: 'error', message: e instanceof Error ? e.message : 'AI analysis failed' });
+    }
   }
 
-  // ── compute ──────────────────────────────────────────────────────────────
+  // ── marks (manual) ──────────────────────────────────────────────────────────
+  function markRelease() { setReleaseSec(reviewRef.current?.currentTime ?? 0); }
+  function markPitch()   { setPitchSec(reviewRef.current?.currentTime   ?? 0); }
+  function clearMarks()  { setReleaseSec(null); setPitchSec(null); }
+
+  // ── compute ─────────────────────────────────────────────────────────────────
   const durationMs = (releaseSec != null && pitchSec != null && pitchSec > releaseSec)
     ? Math.round((pitchSec - releaseSec) * 1000)
     : null;
@@ -152,15 +187,16 @@ export default function BowlingVideoCapture() {
     : null;
   const isOutlier = speedKmh != null && (speedKmh < 30 || speedKmh > 140);
 
-  // ── save ─────────────────────────────────────────────────────────────────
+  // ── save ────────────────────────────────────────────────────────────────────
   async function save() {
     if (durationMs == null || releaseSec == null || pitchSec == null) return;
     setSaving(true);
     setSaveError(null);
+    const fromAi = ai.kind === 'done' && ai.result.releaseMs != null && ai.result.bounceMs != null;
     const r = await createBowlingDelivery({
       durationMs,
       distanceM:    distance,
-      recordedVia:  'video_mark',
+      recordedVia:  fromAi ? 'camera_cv' : 'video_mark',
       releaseMs:    Math.round(releaseSec * 1000),
       pitchMs:      Math.round(pitchSec   * 1000),
     });
@@ -176,12 +212,31 @@ export default function BowlingVideoCapture() {
     setReleaseSec(null);
     setPitchSec(null);
     setSaveError(null);
+    setAi({ kind: 'idle' });
     setPhase('source');
   }
 
-  // ── render ───────────────────────────────────────────────────────────────
+  // Auto-fallback signal: AI ran but confidence is below threshold → tell
+  // the user, and surface the manual marking UI.
+  const aiFallback =
+    ai.kind === 'done' && ai.result.confidence < AI_CONFIDENCE_OK;
+
+  // Show the manual marking UI whenever:
+  //   - user picked manual mode
+  //   - OR AI gave us a low-confidence result
+  //   - OR AI errored
+  const showManualMarks =
+    mode === 'manual' || aiFallback || ai.kind === 'error';
+
+  // ── render ──────────────────────────────────────────────────────────────────
   return (
     <div className="flex flex-col gap-4">
+      <ModeToggle
+        mode={mode}
+        onChange={m => { setMode(m); setAi({ kind: 'idle' }); }}
+        disabled={phase === 'recording'}
+      />
+
       <DistancePicker value={distance} onChange={setDistance} disabled={phase === 'recording'} />
 
       {phase === 'source' && (
@@ -194,6 +249,10 @@ export default function BowlingVideoCapture() {
 
       {phase === 'review' && clipUrl && (
         <ReviewView
+          mode={mode}
+          ai={ai}
+          aiFallback={aiFallback}
+          showManualMarks={showManualMarks}
           videoRef={reviewRef}
           clipUrl={clipUrl}
           releaseSec={releaseSec}
@@ -202,6 +261,7 @@ export default function BowlingVideoCapture() {
           onMarkPitch={markPitch}
           onClearMarks={clearMarks}
           onRestart={resetAll}
+          onRetryAi={runAi}
           speedKmh={speedKmh}
           isOutlier={isOutlier}
           durationMs={durationMs}
@@ -213,10 +273,9 @@ export default function BowlingVideoCapture() {
       )}
 
       <p className="text-[11px] text-gray-500 leading-relaxed">
-        How it works · record or upload a clip of one delivery, then scrub to the moment the ball
-        leaves the bowler&apos;s hand and tap <span className="text-emerald-400 font-semibold">Release</span>.
-        Scrub to where it pitches and tap <span className="text-amber-400 font-semibold">Pitch</span>.
-        We read the timestamps off the video file — no reaction-time error.
+        AI mode uses on-device CV (pose detection + sports-ball tracking) — no upload, no
+        API key, no rate limits. Accuracy depends on lighting and camera angle; we fall
+        back to manual marks if the AI confidence is low.
       </p>
     </div>
   );
@@ -224,11 +283,55 @@ export default function BowlingVideoCapture() {
 
 // ── subcomponents ──────────────────────────────────────────────────────────
 
+function ModeToggle({
+  mode, onChange, disabled,
+}: { mode: Mode; onChange: (m: Mode) => void; disabled: boolean }) {
+  return (
+    <div className="rounded-2xl border border-gray-800 bg-gray-900 p-1 flex gap-1">
+      <ModeButton
+        active={mode === 'ai'}
+        disabled={disabled}
+        onClick={() => onChange('ai')}
+        icon={<Sparkles size={14} />}
+        label="AI auto-detect"
+        sub="Pose + ball tracking"
+      />
+      <ModeButton
+        active={mode === 'manual'}
+        disabled={disabled}
+        onClick={() => onChange('manual')}
+        icon={<Hand size={14} />}
+        label="Manual marks"
+        sub="You tap release + pitch"
+      />
+    </div>
+  );
+}
+
+function ModeButton({
+  active, disabled, onClick, icon, label, sub,
+}: {
+  active: boolean; disabled: boolean; onClick: () => void;
+  icon: React.ReactNode; label: string; sub: string;
+}) {
+  return (
+    <button
+      type="button"
+      disabled={disabled}
+      onClick={onClick}
+      className={`flex-1 rounded-xl px-3 py-2 transition-colors text-left disabled:opacity-50 ${
+        active ? 'bg-emerald-500 text-gray-950' : 'text-gray-300 hover:bg-gray-800'
+      }`}
+    >
+      <span className="flex items-center gap-1.5 text-xs font-bold">{icon}{label}</span>
+      <span className={`block text-[10px] mt-0.5 ${active ? 'text-gray-900/70' : 'text-gray-500'}`}>{sub}</span>
+    </button>
+  );
+}
+
 function DistancePicker({
   value, onChange, disabled,
-}: {
-  value: number; onChange: (n: number) => void; disabled: boolean;
-}) {
+}: { value: number; onChange: (n: number) => void; disabled: boolean }) {
   return (
     <div className="rounded-2xl border border-gray-800 bg-gray-900 p-3">
       <p className="text-[11px] font-semibold uppercase tracking-wider text-gray-400 mb-2">
@@ -320,12 +423,7 @@ function RecordingView({
   return (
     <div className="flex flex-col gap-3">
       <div className="relative rounded-2xl overflow-hidden border border-rose-900/50 bg-black aspect-[3/4]">
-        <video
-          ref={previewRef}
-          playsInline
-          muted
-          className="w-full h-full object-cover"
-        />
+        <video ref={previewRef} playsInline muted className="w-full h-full object-cover" />
         <span className="absolute top-3 left-3 inline-flex items-center gap-1.5 rounded-full bg-rose-500/15 ring-1 ring-rose-500/40 px-2 py-0.5 text-[11px] font-bold uppercase tracking-wider text-rose-300">
           <span className="relative inline-flex h-1.5 w-1.5">
             <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-rose-400 opacity-75" />
@@ -345,12 +443,11 @@ function RecordingView({
   );
 }
 
-function ReviewView({
-  videoRef, clipUrl, releaseSec, pitchSec,
-  onMarkRelease, onMarkPitch, onClearMarks, onRestart,
-  speedKmh, isOutlier, durationMs, distance,
-  saving, saveError, onSave,
-}: {
+function ReviewView(props: {
+  mode: Mode;
+  ai: AiState;
+  aiFallback: boolean;
+  showManualMarks: boolean;
   videoRef: React.RefObject<HTMLVideoElement | null>;
   clipUrl: string;
   releaseSec: number | null;
@@ -359,6 +456,7 @@ function ReviewView({
   onMarkPitch:   () => void;
   onClearMarks:  () => void;
   onRestart:     () => void;
+  onRetryAi:     () => void;
   speedKmh:   number | null;
   isOutlier:  boolean;
   durationMs: number | null;
@@ -367,7 +465,13 @@ function ReviewView({
   saveError:  string | null;
   onSave:     () => void;
 }) {
-  const bothSet = releaseSec != null && pitchSec != null && pitchSec > releaseSec;
+  const {
+    mode, ai, aiFallback, showManualMarks,
+    videoRef, clipUrl, releaseSec, pitchSec,
+    onMarkRelease, onMarkPitch, onClearMarks, onRestart, onRetryAi,
+    speedKmh, isOutlier, durationMs, distance, saving, saveError, onSave,
+  } = props;
+
   const invertedOrder = releaseSec != null && pitchSec != null && pitchSec <= releaseSec;
 
   return (
@@ -380,40 +484,58 @@ function ReviewView({
         className="w-full rounded-2xl border border-gray-800 bg-black aspect-[3/4] object-contain"
       />
 
-      <div className="grid grid-cols-2 gap-2">
-        <button
-          type="button"
-          onClick={onMarkRelease}
-          className={`rounded-xl px-3 py-2.5 text-sm font-bold inline-flex items-center justify-center gap-1.5 ${
-            releaseSec != null
-              ? 'bg-emerald-500/15 ring-1 ring-emerald-500/50 text-emerald-200'
-              : 'bg-emerald-500 hover:bg-emerald-400 text-gray-950'
-          }`}
-        >
-          <Circle size={12} fill="currentColor" />
-          {releaseSec != null ? `Release ${fmtClock(releaseSec)}` : 'Mark release'}
-        </button>
-        <button
-          type="button"
-          onClick={onMarkPitch}
-          className={`rounded-xl px-3 py-2.5 text-sm font-bold inline-flex items-center justify-center gap-1.5 ${
-            pitchSec != null
-              ? 'bg-amber-500/15 ring-1 ring-amber-500/50 text-amber-200'
-              : 'bg-amber-500 hover:bg-amber-400 text-gray-950'
-          }`}
-        >
-          <Circle size={12} fill="currentColor" />
-          {pitchSec != null ? `Pitch ${fmtClock(pitchSec)}` : 'Mark pitch'}
-        </button>
-      </div>
-
-      {invertedOrder && (
-        <p className="text-xs text-rose-300 bg-rose-950/30 border border-rose-900/60 rounded-lg px-3 py-2">
-          Pitch must come after release. Try again.
-        </p>
+      {/* AI status banner */}
+      {mode === 'ai' && ai.kind === 'running' && (
+        <AiProgress progress={ai.progress} />
+      )}
+      {mode === 'ai' && ai.kind === 'done' && !aiFallback && (
+        <AiSuccessBanner result={ai.result} />
+      )}
+      {mode === 'ai' && ai.kind === 'done' && aiFallback && (
+        <AiFallbackBanner result={ai.result} onRetry={onRetryAi} />
+      )}
+      {mode === 'ai' && ai.kind === 'error' && (
+        <AiErrorBanner message={ai.message} onRetry={onRetryAi} />
       )}
 
-      {bothSet && speedKmh != null && (
+      {showManualMarks && (
+        <>
+          <div className="grid grid-cols-2 gap-2">
+            <button
+              type="button"
+              onClick={onMarkRelease}
+              className={`rounded-xl px-3 py-2.5 text-sm font-bold inline-flex items-center justify-center gap-1.5 ${
+                releaseSec != null
+                  ? 'bg-emerald-500/15 ring-1 ring-emerald-500/50 text-emerald-200'
+                  : 'bg-emerald-500 hover:bg-emerald-400 text-gray-950'
+              }`}
+            >
+              <Circle size={12} fill="currentColor" />
+              {releaseSec != null ? `Release ${fmtClock(releaseSec)}` : 'Mark release'}
+            </button>
+            <button
+              type="button"
+              onClick={onMarkPitch}
+              className={`rounded-xl px-3 py-2.5 text-sm font-bold inline-flex items-center justify-center gap-1.5 ${
+                pitchSec != null
+                  ? 'bg-amber-500/15 ring-1 ring-amber-500/50 text-amber-200'
+                  : 'bg-amber-500 hover:bg-amber-400 text-gray-950'
+              }`}
+            >
+              <Circle size={12} fill="currentColor" />
+              {pitchSec != null ? `Pitch ${fmtClock(pitchSec)}` : 'Mark pitch'}
+            </button>
+          </div>
+
+          {invertedOrder && (
+            <p className="text-xs text-rose-300 bg-rose-950/30 border border-rose-900/60 rounded-lg px-3 py-2">
+              Pitch must come after release. Try again.
+            </p>
+          )}
+        </>
+      )}
+
+      {releaseSec != null && pitchSec != null && pitchSec > releaseSec && speedKmh != null && (
         <ResultCard
           speedKmh={speedKmh}
           isOutlier={isOutlier}
@@ -426,13 +548,15 @@ function ReviewView({
       )}
 
       <div className="flex gap-2">
-        <button
-          type="button"
-          onClick={onClearMarks}
-          className="flex-1 rounded-xl bg-gray-800 hover:bg-gray-700 px-3 py-2 text-xs text-gray-200 inline-flex items-center justify-center gap-1.5"
-        >
-          <RotateCcw size={12} /> Clear marks
-        </button>
+        {showManualMarks && (
+          <button
+            type="button"
+            onClick={onClearMarks}
+            className="flex-1 rounded-xl bg-gray-800 hover:bg-gray-700 px-3 py-2 text-xs text-gray-200 inline-flex items-center justify-center gap-1.5"
+          >
+            <RotateCcw size={12} /> Clear marks
+          </button>
+        )}
         <button
           type="button"
           onClick={onRestart}
@@ -441,6 +565,93 @@ function ReviewView({
           <ArrowLeft size={12} /> New clip
         </button>
       </div>
+    </div>
+  );
+}
+
+function AiProgress({ progress }: { progress: number }) {
+  return (
+    <div className="rounded-2xl border border-sky-900/60 bg-sky-950/30 p-4 flex flex-col gap-2">
+      <div className="flex items-center gap-2">
+        <Sparkles size={14} className="text-sky-300" />
+        <p className="text-xs font-bold uppercase tracking-wider text-sky-300">
+          Analyzing video…
+        </p>
+        <p className="ml-auto text-[11px] text-sky-200 tabular-nums">{Math.round(progress * 100)}%</p>
+      </div>
+      <div className="h-1.5 rounded-full bg-sky-950 overflow-hidden">
+        <div
+          className="h-full bg-sky-400 transition-all"
+          style={{ width: `${Math.round(progress * 100)}%` }}
+        />
+      </div>
+      <p className="text-[11px] text-gray-400 leading-relaxed">
+        First run downloads the CV models (~10 MB) from Google&apos;s CDN. Subsequent
+        clips are instant.
+      </p>
+    </div>
+  );
+}
+
+function AiSuccessBanner({ result }: { result: AnalysisResult }) {
+  return (
+    <div className="rounded-2xl border border-emerald-900/60 bg-emerald-950/20 p-3 flex items-start gap-2">
+      <Sparkles size={14} className="text-emerald-300 mt-0.5 shrink-0" />
+      <div className="flex-1 text-[11px]">
+        <p className="font-semibold text-emerald-200">
+          AI detected your delivery · confidence {Math.round(result.confidence * 100)}%
+        </p>
+        <p className="text-gray-400 mt-0.5">
+          Release {result.releaseMs != null ? `${(result.releaseMs / 1000).toFixed(2)}s` : '—'} ·
+          Bounce {result.bounceMs != null ? `${(result.bounceMs / 1000).toFixed(2)}s` : '—'}
+        </p>
+        <p className="text-gray-500 mt-0.5">{result.diagnostic}</p>
+      </div>
+    </div>
+  );
+}
+
+function AiFallbackBanner({ result, onRetry }: { result: AnalysisResult; onRetry: () => void }) {
+  return (
+    <div className="rounded-2xl border border-amber-900/60 bg-amber-950/30 p-3 flex flex-col gap-2">
+      <div className="flex items-start gap-2">
+        <Sparkles size={14} className="text-amber-300 mt-0.5 shrink-0" />
+        <div className="flex-1 text-[11px]">
+          <p className="font-semibold text-amber-200">
+            AI confidence is low · {Math.round(result.confidence * 100)}%
+          </p>
+          <p className="text-gray-400 mt-0.5">
+            We&apos;ve pre-filled what we could spot — nudge the marks below to match
+            what you see, or retry the analysis.
+          </p>
+          <p className="text-gray-500 mt-0.5">{result.diagnostic}</p>
+        </div>
+      </div>
+      <button
+        type="button"
+        onClick={onRetry}
+        className="self-start rounded-lg bg-amber-500/15 ring-1 ring-amber-500/40 px-2.5 py-1 text-[11px] font-bold text-amber-200 inline-flex items-center gap-1.5"
+      >
+        <RotateCcw size={11} /> Retry AI
+      </button>
+    </div>
+  );
+}
+
+function AiErrorBanner({ message, onRetry }: { message: string; onRetry: () => void }) {
+  return (
+    <div className="rounded-2xl border border-rose-900/60 bg-rose-950/30 p-3 flex flex-col gap-2">
+      <p className="text-[11px] font-semibold text-rose-200">
+        AI couldn&apos;t run · falling back to manual marks
+      </p>
+      <p className="text-[11px] text-gray-400 truncate">{message}</p>
+      <button
+        type="button"
+        onClick={onRetry}
+        className="self-start rounded-lg bg-rose-500/15 ring-1 ring-rose-500/40 px-2.5 py-1 text-[11px] font-bold text-rose-200 inline-flex items-center gap-1.5"
+      >
+        <RotateCcw size={11} /> Retry
+      </button>
     </div>
   );
 }
@@ -454,30 +665,22 @@ function ResultCard({
   if (isOutlier) {
     return (
       <div className="rounded-2xl border border-rose-900/60 bg-rose-950/30 p-5 flex flex-col items-center gap-2 text-center">
-        <p className="text-[11px] font-bold uppercase tracking-wider text-rose-400">
-          Reading looks off
-        </p>
-        <p className="text-3xl font-extrabold text-rose-200 tabular-nums">
-          {speedKmh.toFixed(1)} km/h
-        </p>
+        <p className="text-[11px] font-bold uppercase tracking-wider text-rose-400">Reading looks off</p>
+        <p className="text-3xl font-extrabold text-rose-200 tabular-nums">{speedKmh.toFixed(1)} km/h</p>
         <p className="text-xs text-gray-400 max-w-[32ch] leading-relaxed">
-          That&apos;s outside 30–140 km/h. Check your pitch-length setting and your marks, then try again.
+          That&apos;s outside 30–140 km/h. Check pitch-length and your marks, then try again.
         </p>
       </div>
     );
   }
   return (
     <div className="rounded-2xl border border-emerald-900/60 bg-emerald-950/30 p-5 flex flex-col items-center gap-2 text-center">
-      <p className="text-[11px] font-bold uppercase tracking-wider text-emerald-400">
-        Delivery speed
-      </p>
+      <p className="text-[11px] font-bold uppercase tracking-wider text-emerald-400">Delivery speed</p>
       <p className="text-5xl font-extrabold text-white tabular-nums leading-none">
         {speedKmh.toFixed(1)}
         <span className="text-xl text-emerald-300 font-bold ml-2">km/h</span>
       </p>
-      <p className="text-[11px] text-gray-500">
-        {distance.toFixed(2)} m · {durationMs} ms
-      </p>
+      <p className="text-[11px] text-gray-500">{distance.toFixed(2)} m · {durationMs} ms</p>
       {error && (
         <p className="text-xs text-rose-300 bg-rose-950/40 border border-rose-900/60 rounded-lg px-3 py-2 max-w-full">
           {error}
