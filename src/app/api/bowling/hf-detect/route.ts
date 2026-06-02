@@ -50,12 +50,23 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: 'imageDataUrl must be a data: URL' }, { status: 400 });
   }
 
-  // The HF Inference API for object detection accepts raw image bytes.
-  // Convert the data: URL the browser handed us into a Buffer.
+  // The HF Inference API for object detection accepts raw image bytes,
+  // and the new router endpoint validates Content-Type strictly — must be
+  // image/jpeg, image/png etc, not application/octet-stream. Parse the
+  // MIME out of the data: URL and forward it.
   const commaIdx = body.imageDataUrl.indexOf(',');
   if (commaIdx < 0) {
     return NextResponse.json({ error: 'Malformed data URL' }, { status: 400 });
   }
+  const header = body.imageDataUrl.slice(0, commaIdx); // e.g. "data:image/jpeg;base64"
+  const mimeMatch = header.match(/^data:(image\/(?:jpeg|jpg|png|webp|bmp|gif|tiff));base64$/);
+  if (!mimeMatch) {
+    return NextResponse.json(
+      { error: 'imageDataUrl must be base64-encoded image/{jpeg|png|webp|bmp|gif|tiff}' },
+      { status: 400 },
+    );
+  }
+  const mime = mimeMatch[1];
   const b64 = body.imageDataUrl.slice(commaIdx + 1);
   let bytes: Buffer;
   try {
@@ -68,7 +79,11 @@ export async function POST(req: Request) {
   }
 
   const model = (body.model || DEFAULT_MODEL).trim();
-  const hfUrl = `https://api-inference.huggingface.co/models/${encodeURIComponent(model)}`;
+  // HF's legacy `api-inference.huggingface.co/models/...` endpoint has been
+  // phased out in favour of the inference router; some networks (corporate
+  // proxies / DNS scopes) only let the router subdomain through. Path-shape
+  // is identical so the body / response handling stays unchanged.
+  const hfUrl = `https://router.huggingface.co/hf-inference/models/${encodeURIComponent(model)}`;
 
   let upstream: Response;
   try {
@@ -76,9 +91,9 @@ export async function POST(req: Request) {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${token}`,
-        'Content-Type':  'application/octet-stream',
+        'Content-Type':  mime,
       },
-      body: new Blob([new Uint8Array(bytes)]),
+      body: new Blob([new Uint8Array(bytes)], { type: mime }),
     });
   } catch (e) {
     return NextResponse.json(
