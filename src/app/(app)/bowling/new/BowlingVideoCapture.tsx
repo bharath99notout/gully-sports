@@ -6,6 +6,7 @@ import { Video, Upload, Circle, Square, RotateCcw, ArrowLeft, Sparkles, Hand } f
 import { createBowlingDelivery } from '@/app/actions/bowlingDeliveries';
 import { analyzeDelivery, type AnalysisResult } from '@/lib/bowlingAnalysis/analyzer';
 import { analyzeDeliveryWithHF } from '@/lib/bowlingAnalysis/hfAnalyzer';
+import { detectSlowmoFactor } from '@/lib/bowlingAnalysis/slowmoDetect';
 
 /**
  * Bowling Analyzer capture surface.
@@ -182,24 +183,35 @@ export default function BowlingVideoCapture() {
     setSlowmoAutoSuggested(false);
     setPhase('review');
 
-    // Heuristic auto-suggest: once metadata loads we know duration + frame
-    // size, combine with the File's bytes to estimate bitrate. Runs once,
-    // off the side — the user can override the chip group either way.
-    const fileBytes = f.size;
-    const probe = document.createElement('video');
-    probe.preload = 'metadata';
-    probe.src = URL.createObjectURL(f);
-    probe.onloadedmetadata = () => {
-      const dur = probe.duration;
-      const px  = probe.videoWidth * probe.videoHeight;
-      const suggested = suggestSlowmoFactor(fileBytes, dur, px);
-      if (suggested > 1) {
-        setSlowdownFactor(suggested);
+    // Auto-suggest the slo-mo factor. Preferred: parse MP4 atoms to read
+    // the actual capture framerate (reliable signal — iPhone slo-mo records
+    // 240fps at 30fps presentation, and the structural sample table tells
+    // us so). Fallback: bitrate heuristic from file size + video metadata.
+    (async () => {
+      const fromAtoms = await detectSlowmoFactor(f);
+      if (fromAtoms && fromAtoms.factor > 1) {
+        setSlowdownFactor(fromAtoms.factor);
         setSlowmoAutoSuggested(true);
+        return;
       }
-      URL.revokeObjectURL(probe.src);
-    };
-    probe.onerror = () => URL.revokeObjectURL(probe.src);
+      // Fall through to bitrate heuristic — covers re-encoded shares that
+      // lost their original metadata.
+      const fileBytes = f.size;
+      const probe = document.createElement('video');
+      probe.preload = 'metadata';
+      probe.src = URL.createObjectURL(f);
+      probe.onloadedmetadata = () => {
+        const dur = probe.duration;
+        const px  = probe.videoWidth * probe.videoHeight;
+        const suggested = suggestSlowmoFactor(fileBytes, dur, px);
+        if (suggested > 1) {
+          setSlowdownFactor(suggested);
+          setSlowmoAutoSuggested(true);
+        }
+        URL.revokeObjectURL(probe.src);
+      };
+      probe.onerror = () => URL.revokeObjectURL(probe.src);
+    })();
   }
 
   // ── AI flow ─────────────────────────────────────────────────────────────────
