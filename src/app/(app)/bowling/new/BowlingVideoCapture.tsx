@@ -6,6 +6,7 @@ import { Video, Upload, Circle, Square, RotateCcw, ArrowLeft, Sparkles, Hand } f
 import { createBowlingDelivery } from '@/app/actions/bowlingDeliveries';
 import { analyzeDelivery, type AnalysisResult } from '@/lib/bowlingAnalysis/analyzer';
 import { analyzeDeliveryWithHF } from '@/lib/bowlingAnalysis/hfAnalyzer';
+import { analyzeDeliveryWithRoboflow } from '@/lib/bowlingAnalysis/rfAnalyzer';
 import { detectSlowmoFactor } from '@/lib/bowlingAnalysis/slowmoDetect';
 
 /**
@@ -26,7 +27,7 @@ import { detectSlowmoFactor } from '@/lib/bowlingAnalysis/slowmoDetect';
 
 type Mode  = 'ai' | 'manual';
 type Phase = 'source' | 'recording' | 'review';
-type Engine = 'mediapipe' | 'huggingface';
+type Engine = 'mediapipe' | 'huggingface' | 'roboflow';
 type AiState =
   | { kind: 'idle' }
   | { kind: 'running'; progress: number }
@@ -34,6 +35,9 @@ type AiState =
   | { kind: 'error'; message: string };
 
 const HF_DEFAULT_MODEL = 'facebook/detr-resnet-50';
+// Roboflow Universe path: workspace/project/version. Left blank by default —
+// the user pastes a path from a model's Roboflow Universe "Use API" tab.
+const RF_DEFAULT_MODEL = '';
 
 const PITCH_PRESETS = [
   { label: 'Full pitch', meters: 20.12 },
@@ -79,6 +83,7 @@ export default function BowlingVideoCapture() {
   const [mode, setMode]     = useState<Mode>('ai');
   const [engine, setEngine] = useState<Engine>('mediapipe');
   const [hfModel, setHfModel] = useState<string>(HF_DEFAULT_MODEL);
+  const [rfModel, setRfModel] = useState<string>(RF_DEFAULT_MODEL);
   const [phase, setPhase] = useState<Phase>('source');
   const [distance, setDistance] = useState<number>(20.12);
   const [slowdownFactor, setSlowdownFactor] = useState<number>(1);
@@ -233,11 +238,17 @@ export default function BowlingVideoCapture() {
             model: hfModel,
             onProgress: p => setAi({ kind: 'running', progress: p }),
           })
-        : await analyzeDelivery(video, {
-            distanceM: distance,
-            sampleIntervalMs: 50,
-            onProgress: p => setAi({ kind: 'running', progress: p }),
-          });
+        : engine === 'roboflow'
+          ? await analyzeDeliveryWithRoboflow(video, {
+              distanceM: distance,
+              model: rfModel,
+              onProgress: p => setAi({ kind: 'running', progress: p }),
+            })
+          : await analyzeDelivery(video, {
+              distanceM: distance,
+              sampleIntervalMs: 50,
+              onProgress: p => setAi({ kind: 'running', progress: p }),
+            });
       setAi({ kind: 'done', result });
 
       // Pre-fill marks from AI results so the manual UI can take over cleanly
@@ -326,6 +337,8 @@ export default function BowlingVideoCapture() {
           onChange={e => { setEngine(e); setAi({ kind: 'idle' }); }}
           hfModel={hfModel}
           onHfModelChange={setHfModel}
+          rfModel={rfModel}
+          onRfModelChange={setRfModel}
           disabled={phase === 'recording'}
         />
       )}
@@ -406,50 +419,37 @@ function ModeToggle({
 }
 
 function EnginePicker({
-  engine, onChange, hfModel, onHfModelChange, disabled,
+  engine, onChange, hfModel, onHfModelChange, rfModel, onRfModelChange, disabled,
 }: {
   engine: Engine;
   onChange: (e: Engine) => void;
   hfModel: string;
   onHfModelChange: (m: string) => void;
+  rfModel: string;
+  onRfModelChange: (m: string) => void;
   disabled: boolean;
 }) {
+  // Color-coded tints per engine — same palette pattern as elsewhere
+  // (emerald=local, sky=cloud-default, amber=experimental).
+  const tint = (e: Engine, active: boolean) => {
+    if (!active) return 'bg-gray-800 text-gray-300 hover:bg-gray-700';
+    if (e === 'mediapipe')   return 'bg-emerald-500 text-gray-950';
+    if (e === 'huggingface') return 'bg-sky-500 text-gray-950';
+    return 'bg-amber-500 text-gray-950';
+  };
+
   return (
     <div className="rounded-2xl border border-gray-800 bg-gray-900 p-3 flex flex-col gap-2">
       <p className="text-[11px] font-semibold uppercase tracking-wider text-gray-400">
         Detection engine
       </p>
-      <div className="flex gap-2">
-        <button
-          type="button"
-          disabled={disabled}
-          onClick={() => onChange('mediapipe')}
-          className={`flex-1 rounded-xl px-3 py-2 text-left transition-colors disabled:opacity-50 ${
-            engine === 'mediapipe'
-              ? 'bg-emerald-500 text-gray-950'
-              : 'bg-gray-800 text-gray-300 hover:bg-gray-700'
-          }`}
-        >
-          <span className="block text-xs font-bold">MediaPipe</span>
-          <span className={`block text-[10px] mt-0.5 ${engine === 'mediapipe' ? 'text-gray-900/70' : 'text-gray-500'}`}>
-            In-browser · fast · free
-          </span>
-        </button>
-        <button
-          type="button"
-          disabled={disabled}
-          onClick={() => onChange('huggingface')}
-          className={`flex-1 rounded-xl px-3 py-2 text-left transition-colors disabled:opacity-50 ${
-            engine === 'huggingface'
-              ? 'bg-sky-500 text-gray-950'
-              : 'bg-gray-800 text-gray-300 hover:bg-gray-700'
-          }`}
-        >
-          <span className="block text-xs font-bold">Hugging Face</span>
-          <span className={`block text-[10px] mt-0.5 ${engine === 'huggingface' ? 'text-gray-900/70' : 'text-gray-500'}`}>
-            Cloud · experimental
-          </span>
-        </button>
+      <div className="grid grid-cols-3 gap-2">
+        <EngineButton engine="mediapipe"   active={engine === 'mediapipe'}   disabled={disabled}
+          onClick={() => onChange('mediapipe')}   label="MediaPipe"    sub="In-browser · free" tint={tint('mediapipe', engine === 'mediapipe')} />
+        <EngineButton engine="huggingface" active={engine === 'huggingface'} disabled={disabled}
+          onClick={() => onChange('huggingface')} label="Hugging Face" sub="Cloud · generic"   tint={tint('huggingface', engine === 'huggingface')} />
+        <EngineButton engine="roboflow"    active={engine === 'roboflow'}    disabled={disabled}
+          onClick={() => onChange('roboflow')}    label="Roboflow"     sub="Cloud · cricket"  tint={tint('roboflow', engine === 'roboflow')} />
       </div>
       {engine === 'huggingface' && (
         <div className="flex flex-col gap-1.5">
@@ -466,12 +466,57 @@ function EnginePicker({
           />
           <p className="text-[10px] text-gray-500 leading-relaxed">
             Needs <code className="text-sky-300">HUGGINGFACE_API_TOKEN</code> in server env. Free
-            tier ~30 RPM — analysis takes 30–60s per video. Try cricket-specific community models
-            here for sharper ball detection.
+            tier ~30 RPM, analysis 30–60s per clip.
+          </p>
+        </div>
+      )}
+      {engine === 'roboflow' && (
+        <div className="flex flex-col gap-1.5">
+          <label className="text-[10px] font-semibold uppercase tracking-wider text-gray-500">
+            Roboflow model path
+          </label>
+          <input
+            type="text"
+            value={rfModel}
+            disabled={disabled}
+            onChange={e => onRfModelChange(e.target.value)}
+            placeholder="workspace/project/version"
+            className="rounded-lg bg-gray-800 border border-gray-700 px-2 py-1.5 text-xs text-gray-100 placeholder-gray-500 disabled:opacity-50 focus:outline-none focus:border-amber-500"
+          />
+          <p className="text-[10px] text-gray-500 leading-relaxed">
+            Needs <code className="text-amber-300">ROBOFLOW_API_KEY</code> in server env. Find a
+            cricket-ball model on <a href="https://universe.roboflow.com/search?q=cricket+ball" target="_blank" rel="noreferrer" className="text-amber-300 hover:underline">Roboflow Universe</a> — paste the
+            workspace/project/version from its &quot;Use API&quot; tab. Free tier ~1000 inferences/month.
           </p>
         </div>
       )}
     </div>
+  );
+}
+
+function EngineButton({
+  active, disabled, onClick, label, sub, tint,
+}: {
+  engine: Engine;
+  active: boolean;
+  disabled: boolean;
+  onClick: () => void;
+  label: string;
+  sub: string;
+  tint: string;
+}) {
+  return (
+    <button
+      type="button"
+      disabled={disabled}
+      onClick={onClick}
+      className={`rounded-xl px-2.5 py-2 text-left transition-colors disabled:opacity-50 ${tint}`}
+    >
+      <span className="block text-[11px] font-bold">{label}</span>
+      <span className={`block text-[10px] mt-0.5 ${active ? 'text-gray-900/70' : 'text-gray-500'}`}>
+        {sub}
+      </span>
+    </button>
   );
 }
 

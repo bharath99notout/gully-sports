@@ -543,6 +543,12 @@ NEXT_PUBLIC_SUPABASE_ANON_KEY=sb_publishable_C-1TVbEWXO7OTVf6sXjQEA_iKsU-MUx
 # Bowling Analyzer. The token stays server-side (never shipped to the
 # browser). Get a free one at https://huggingface.co/settings/tokens.
 HUGGINGFACE_API_TOKEN=hf_xxx
+
+# Optional — only needed for the Roboflow engine on the Bowling Analyzer.
+# Free tier covers ~1000 inferences/month. Workspace API key from
+# https://app.roboflow.com → Account → API Keys → Private API Key.
+# Find cricket-ball models on https://universe.roboflow.com/search?q=cricket+ball
+ROBOFLOW_API_KEY=rf_xxx
 ```
 
 Must be set in Vercel dashboard under Settings → Environment Variables.
