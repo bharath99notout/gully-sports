@@ -7,6 +7,7 @@ import { createBowlingDelivery } from '@/app/actions/bowlingDeliveries';
 import { analyzeDelivery, type AnalysisResult } from '@/lib/bowlingAnalysis/analyzer';
 import { analyzeDeliveryWithHF } from '@/lib/bowlingAnalysis/hfAnalyzer';
 import { analyzeDeliveryWithRoboflow } from '@/lib/bowlingAnalysis/rfAnalyzer';
+import { analyzeDeliveryWithGemini } from '@/lib/bowlingAnalysis/geminiAnalyzer';
 import { detectSlowmoFactor } from '@/lib/bowlingAnalysis/slowmoDetect';
 
 /**
@@ -27,7 +28,7 @@ import { detectSlowmoFactor } from '@/lib/bowlingAnalysis/slowmoDetect';
 
 type Mode  = 'ai' | 'manual';
 type Phase = 'source' | 'recording' | 'review';
-type Engine = 'mediapipe' | 'huggingface' | 'roboflow';
+type Engine = 'mediapipe' | 'huggingface' | 'roboflow' | 'gemini';
 type AiState =
   | { kind: 'idle' }
   | { kind: 'running'; progress: number }
@@ -38,6 +39,9 @@ const HF_DEFAULT_MODEL = 'facebook/detr-resnet-50';
 // Roboflow Universe path: workspace/project/version. Left blank by default —
 // the user pastes a path from a model's Roboflow Universe "Use API" tab.
 const RF_DEFAULT_MODEL = '';
+// Gemini 2.5 Flash — current best free tier for video understanding. Users
+// with Pro quota can swap to gemini-2.5-pro for higher accuracy.
+const GEMINI_DEFAULT_MODEL = 'gemini-2.5-flash';
 
 const PITCH_PRESETS = [
   { label: 'Full pitch', meters: 20.12 },
@@ -84,6 +88,7 @@ export default function BowlingVideoCapture() {
   const [engine, setEngine] = useState<Engine>('mediapipe');
   const [hfModel, setHfModel] = useState<string>(HF_DEFAULT_MODEL);
   const [rfModel, setRfModel] = useState<string>(RF_DEFAULT_MODEL);
+  const [geminiModel, setGeminiModel] = useState<string>(GEMINI_DEFAULT_MODEL);
   const [phase, setPhase] = useState<Phase>('source');
   const [distance, setDistance] = useState<number>(20.12);
   const [slowdownFactor, setSlowdownFactor] = useState<number>(1);
@@ -101,6 +106,9 @@ export default function BowlingVideoCapture() {
   // Review
   const reviewRef = useRef<HTMLVideoElement | null>(null);
   const [clipUrl, setClipUrl] = useState<string | null>(null);
+  // Raw blob alongside the object URL — Gemini path ships the bytes to the
+  // server. The other engines only consume the playing video element.
+  const [clipBlob, setClipBlob] = useState<Blob | null>(null);
   const [releaseSec, setReleaseSec] = useState<number | null>(null);
   const [pitchSec,   setPitchSec]   = useState<number | null>(null);
 
@@ -150,6 +158,7 @@ export default function BowlingVideoCapture() {
         const blob = new Blob(chunksRef.current, { type: mime ?? 'video/webm' });
         const url = URL.createObjectURL(blob);
         setClipUrl(url);
+        setClipBlob(blob);
         setPhase('review');
       };
       recorderRef.current = rec;
@@ -180,6 +189,7 @@ export default function BowlingVideoCapture() {
     if (!f) return;
     if (clipUrl) URL.revokeObjectURL(clipUrl);
     setClipUrl(URL.createObjectURL(f));
+    setClipBlob(f);
     setReleaseSec(null);
     setPitchSec(null);
     setAi({ kind: 'idle' });
@@ -250,11 +260,20 @@ export default function BowlingVideoCapture() {
               model: rfModel,
               onProgress: p => setAi({ kind: 'running', progress: p }),
             })
-          : await analyzeDelivery(video, {
-              distanceM: distance,
-              sampleIntervalMs: 50,
-              onProgress: p => setAi({ kind: 'running', progress: p }),
-            });
+          : engine === 'gemini'
+            ? clipBlob
+              ? await analyzeDeliveryWithGemini(video, {
+                  distanceM: distance,
+                  clip: clipBlob,
+                  model: geminiModel,
+                  onProgress: p => setAi({ kind: 'running', progress: p }),
+                })
+              : { releaseMs: null, bounceMs: null, speedKmh: null, confidence: 0, frames: [], diagnostic: 'Gemini needs a clip blob — try re-uploading' }
+            : await analyzeDelivery(video, {
+                distanceM: distance,
+                sampleIntervalMs: 50,
+                onProgress: p => setAi({ kind: 'running', progress: p }),
+              });
       setAi({ kind: 'done', result });
 
       // Pre-fill marks from AI results so the manual UI can take over cleanly
@@ -313,6 +332,7 @@ export default function BowlingVideoCapture() {
   function resetAll() {
     if (clipUrl) URL.revokeObjectURL(clipUrl);
     setClipUrl(null);
+    setClipBlob(null);
     setReleaseSec(null);
     setPitchSec(null);
     setSaveError(null);
@@ -349,6 +369,8 @@ export default function BowlingVideoCapture() {
           onHfModelChange={setHfModel}
           rfModel={rfModel}
           onRfModelChange={setRfModel}
+          geminiModel={geminiModel}
+          onGeminiModelChange={setGeminiModel}
           disabled={phase === 'recording'}
         />
       )}
@@ -429,7 +451,11 @@ function ModeToggle({
 }
 
 function EnginePicker({
-  engine, onChange, hfModel, onHfModelChange, rfModel, onRfModelChange, disabled,
+  engine, onChange,
+  hfModel, onHfModelChange,
+  rfModel, onRfModelChange,
+  geminiModel, onGeminiModelChange,
+  disabled,
 }: {
   engine: Engine;
   onChange: (e: Engine) => void;
@@ -437,15 +463,19 @@ function EnginePicker({
   onHfModelChange: (m: string) => void;
   rfModel: string;
   onRfModelChange: (m: string) => void;
+  geminiModel: string;
+  onGeminiModelChange: (m: string) => void;
   disabled: boolean;
 }) {
-  // Color-coded tints per engine — same palette pattern as elsewhere
-  // (emerald=local, sky=cloud-default, amber=experimental).
+  // Color-coded tints per engine — emerald=local-free, sky=cloud-detection,
+  // amber=cloud-cricket-specific, fuchsia=cloud-LLM (Gemini stands out so
+  // users notice it's a different *kind* of engine).
   const tint = (e: Engine, active: boolean) => {
     if (!active) return 'bg-gray-800 text-gray-300 hover:bg-gray-700';
     if (e === 'mediapipe')   return 'bg-emerald-500 text-gray-950';
     if (e === 'huggingface') return 'bg-sky-500 text-gray-950';
-    return 'bg-amber-500 text-gray-950';
+    if (e === 'roboflow')    return 'bg-amber-500 text-gray-950';
+    return 'bg-fuchsia-500 text-gray-950';
   };
 
   return (
@@ -453,13 +483,15 @@ function EnginePicker({
       <p className="text-[11px] font-semibold uppercase tracking-wider text-gray-400">
         Detection engine
       </p>
-      <div className="grid grid-cols-3 gap-2">
+      <div className="grid grid-cols-2 gap-2">
         <EngineButton engine="mediapipe"   active={engine === 'mediapipe'}   disabled={disabled}
-          onClick={() => onChange('mediapipe')}   label="MediaPipe"    sub="In-browser · free" tint={tint('mediapipe', engine === 'mediapipe')} />
+          onClick={() => onChange('mediapipe')}   label="MediaPipe"    sub="In-browser · free"  tint={tint('mediapipe', engine === 'mediapipe')} />
         <EngineButton engine="huggingface" active={engine === 'huggingface'} disabled={disabled}
-          onClick={() => onChange('huggingface')} label="Hugging Face" sub="Cloud · generic"   tint={tint('huggingface', engine === 'huggingface')} />
+          onClick={() => onChange('huggingface')} label="Hugging Face" sub="Cloud · generic"    tint={tint('huggingface', engine === 'huggingface')} />
         <EngineButton engine="roboflow"    active={engine === 'roboflow'}    disabled={disabled}
-          onClick={() => onChange('roboflow')}    label="Roboflow"     sub="Cloud · cricket"  tint={tint('roboflow', engine === 'roboflow')} />
+          onClick={() => onChange('roboflow')}    label="Roboflow"     sub="Cloud · cricket"    tint={tint('roboflow', engine === 'roboflow')} />
+        <EngineButton engine="gemini"      active={engine === 'gemini'}      disabled={disabled}
+          onClick={() => onChange('gemini')}      label="Gemini Vision" sub="Cloud · LLM"       tint={tint('gemini', engine === 'gemini')} />
       </div>
       {engine === 'huggingface' && (
         <div className="flex flex-col gap-1.5">
@@ -497,6 +529,26 @@ function EnginePicker({
             Needs <code className="text-amber-300">ROBOFLOW_API_KEY</code> in server env. Find a
             cricket-ball model on <a href="https://universe.roboflow.com/search?q=cricket+ball" target="_blank" rel="noreferrer" className="text-amber-300 hover:underline">Roboflow Universe</a> — paste the
             workspace/project/version from its &quot;Use API&quot; tab. Free tier ~1000 inferences/month.
+          </p>
+        </div>
+      )}
+      {engine === 'gemini' && (
+        <div className="flex flex-col gap-1.5">
+          <label className="text-[10px] font-semibold uppercase tracking-wider text-gray-500">
+            Gemini model
+          </label>
+          <input
+            type="text"
+            value={geminiModel}
+            disabled={disabled}
+            onChange={e => onGeminiModelChange(e.target.value)}
+            placeholder="gemini-2.5-flash"
+            className="rounded-lg bg-gray-800 border border-gray-700 px-2 py-1.5 text-xs text-gray-100 placeholder-gray-500 disabled:opacity-50 focus:outline-none focus:border-fuchsia-500"
+          />
+          <p className="text-[10px] text-gray-500 leading-relaxed">
+            Needs <code className="text-fuchsia-300">GOOGLE_AI_API_KEY</code> in server env (free key at <a href="https://aistudio.google.com/apikey" target="_blank" rel="noreferrer" className="text-fuchsia-300 hover:underline">aistudio.google.com/apikey</a>).
+            Gemini watches the whole clip in one call — slower (~5-20s) but understands events,
+            not just pixels. Clip cap ~18 MB inline. Free tier ~15 RPM / 1500 daily.
           </p>
         </div>
       )}

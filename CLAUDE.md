@@ -549,6 +549,11 @@ HUGGINGFACE_API_TOKEN=hf_xxx
 # https://app.roboflow.com → Account → API Keys → Private API Key.
 # Find cricket-ball models on https://universe.roboflow.com/search?q=cricket+ball
 ROBOFLOW_API_KEY=rf_xxx
+
+# Optional — only needed for the Gemini Vision engine on the Bowling
+# Analyzer. Free tier covers ~15 RPM / 1500 daily for gemini-2.5-flash.
+# Get a free key at https://aistudio.google.com/apikey
+GOOGLE_AI_API_KEY=AIza...
 ```
 
 Must be set in Vercel dashboard under Settings → Environment Variables.
