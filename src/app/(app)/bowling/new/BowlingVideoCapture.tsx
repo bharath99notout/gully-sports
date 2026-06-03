@@ -332,13 +332,6 @@ export default function BowlingVideoCapture() {
 
       <DistancePicker value={distance} onChange={setDistance} disabled={phase === 'recording'} />
 
-      <SlowMoPicker
-        value={slowdownFactor}
-        autoSuggested={slowmoAutoSuggested}
-        onChange={f => { setSlowdownFactor(f); setSlowmoAutoSuggested(false); }}
-        disabled={phase === 'recording'}
-      />
-
       {phase === 'source' && (
         <SourcePicker onRecord={startRecording} onPick={onPickFile} error={recError} />
       )}
@@ -367,6 +360,8 @@ export default function BowlingVideoCapture() {
           durationMs={durationMs}
           videoDurationMs={videoDurationMs}
           slowdownFactor={slowdownFactor}
+          slowmoAutoSuggested={slowmoAutoSuggested}
+          onSlowdownChange={f => { setSlowdownFactor(f); setSlowmoAutoSuggested(false); }}
           distance={distance}
           saving={saving}
           saveError={saveError}
@@ -501,53 +496,61 @@ function ModeButton({
   );
 }
 
-function SlowMoPicker({
-  value, autoSuggested, onChange, disabled,
+function SlowMoStatus({
+  factor, autoSuggested, onChange,
 }: {
-  value: number;
+  factor: number;
   autoSuggested: boolean;
   onChange: (factor: number) => void;
-  disabled: boolean;
 }) {
+  const [open, setOpen] = useState(false);
+  const preset = SLOWMO_PRESETS.find(p => p.factor === factor) ?? SLOWMO_PRESETS[0];
+
   return (
-    <div className="rounded-2xl border border-gray-800 bg-gray-900 p-3">
-      <div className="flex items-center justify-between mb-2 gap-2">
-        <p className="text-[11px] font-semibold uppercase tracking-wider text-gray-400">
-          Slo-mo factor
-        </p>
+    <div className="rounded-xl border border-gray-800 bg-gray-900/60 px-3 py-2 flex flex-col gap-2">
+      <div className="flex items-center gap-2 text-xs">
+        <span className="text-gray-500 uppercase tracking-wider text-[10px] font-semibold">Speed</span>
+        <span className={`font-bold ${factor === 1 ? 'text-gray-200' : 'text-sky-300'}`}>
+          {preset.label}
+        </span>
+        <span className="text-[11px] text-gray-500">· {preset.hint}</span>
         {autoSuggested && (
-          <span className="text-[10px] uppercase tracking-wider font-bold text-sky-300 bg-sky-500/10 ring-1 ring-sky-500/30 rounded-full px-2 py-0.5">
-            Auto-detected
+          <span className="text-[10px] uppercase tracking-wider font-bold text-sky-300 bg-sky-500/10 ring-1 ring-sky-500/30 rounded-full px-1.5 py-0.5">
+            Auto
           </span>
         )}
+        <button
+          type="button"
+          onClick={() => setOpen(o => !o)}
+          className="ml-auto text-[11px] text-emerald-400 hover:text-emerald-300 font-semibold"
+        >
+          {open ? 'Done' : 'Change'}
+        </button>
       </div>
-      <div className="flex gap-2 flex-wrap">
-        {SLOWMO_PRESETS.map(p => {
-          const active = value === p.factor;
-          return (
-            <button
-              key={p.label}
-              type="button"
-              disabled={disabled}
-              onClick={() => onChange(p.factor)}
-              className={`px-3 py-1.5 rounded-full text-xs font-semibold transition-colors disabled:opacity-50 ${
-                active
-                  ? 'bg-sky-500 text-gray-950'
-                  : 'bg-gray-800 text-gray-300 border border-gray-700 hover:border-gray-600'
-              }`}
-            >
-              {p.label}
-              <span className={`ml-1 text-[10px] ${active ? 'text-gray-900/70' : 'text-gray-500'}`}>
-                · {p.hint}
-              </span>
-            </button>
-          );
-        })}
-      </div>
-      <p className="text-[10px] text-gray-500 mt-2 leading-relaxed">
-        A 4× slo-mo clip marked as Normal will read ¼ the real speed. We try to detect this from
-        the file&apos;s bitrate on upload — verify before saving.
-      </p>
+      {open && (
+        <div className="flex gap-2 flex-wrap pt-1">
+          {SLOWMO_PRESETS.map(p => {
+            const active = factor === p.factor;
+            return (
+              <button
+                key={p.label}
+                type="button"
+                onClick={() => { onChange(p.factor); setOpen(false); }}
+                className={`px-2.5 py-1 rounded-full text-[11px] font-semibold transition-colors ${
+                  active
+                    ? 'bg-sky-500 text-gray-950'
+                    : 'bg-gray-800 text-gray-300 border border-gray-700 hover:border-gray-600'
+                }`}
+              >
+                {p.label}
+                <span className={`ml-1 text-[10px] ${active ? 'text-gray-900/70' : 'text-gray-500'}`}>
+                  · {p.hint}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }
@@ -685,6 +688,8 @@ function ReviewView(props: {
   durationMs:      number | null;
   videoDurationMs: number | null;
   slowdownFactor:  number;
+  slowmoAutoSuggested: boolean;
+  onSlowdownChange: (factor: number) => void;
   distance:   number;
   saving:     boolean;
   saveError:  string | null;
@@ -694,7 +699,8 @@ function ReviewView(props: {
     mode, ai, aiFallback, showManualMarks,
     videoRef, clipUrl, releaseSec, pitchSec,
     onMarkRelease, onMarkPitch, onClearMarks, onRestart, onRetryAi,
-    speedKmh, isOutlier, durationMs, videoDurationMs, slowdownFactor,
+    speedKmh, isOutlier, durationMs, videoDurationMs,
+    slowdownFactor, slowmoAutoSuggested, onSlowdownChange,
     distance, saving, saveError, onSave,
   } = props;
 
@@ -708,6 +714,12 @@ function ReviewView(props: {
         controls
         playsInline
         className="w-full rounded-2xl border border-gray-800 bg-black aspect-[3/4] object-contain"
+      />
+
+      <SlowMoStatus
+        factor={slowdownFactor}
+        autoSuggested={slowmoAutoSuggested}
+        onChange={onSlowdownChange}
       />
 
       {/* AI status banner */}
