@@ -40,7 +40,33 @@ const PITCH_PRESETS = [
   { label: 'Net / short', meters: 14.0 },
 ];
 
+// Slo-mo: most phones offer 60/120/240fps capture played back at 30fps.
+// Effective slowdown when watched is the capture-fps divided by playback-fps
+// (~2x, 4x, 8x respectively). Speed = distance / (videoElapsed / factor).
+const SLOWMO_PRESETS = [
+  { label: 'Normal',    factor: 1,  hint: '30 fps' },
+  { label: 'Slo-mo 2×', factor: 2,  hint: '60 fps' },
+  { label: 'Slo-mo 4×', factor: 4,  hint: '120 fps' },
+  { label: 'Slo-mo 8×', factor: 8,  hint: '240 fps' },
+];
+
 const AI_CONFIDENCE_OK = 0.35; // below this we fall back to user-marks-bounce
+
+// Bitrate heuristic for auto-suggesting slo-mo factor on uploaded clips.
+// Normal H.264 at common resolutions sits around these Mbps numbers; slo-mo
+// captures 4× or 8× more frames per second, so the file is 4–8× the bitrate
+// at the same resolution. Defensive bounds — overshoots are fine because the
+// user can always override the chip selection.
+function suggestSlowmoFactor(fileBytes: number, durationSec: number, pixelArea: number): number {
+  if (!durationSec || !pixelArea || !fileBytes) return 1;
+  const mbps = (fileBytes * 8) / durationSec / 1_000_000;
+  // ~Normal bitrate baseline scaled by 1080p = 2,073,600 px² for reference.
+  // Anything ≥ ~25 Mbps on HD is suspicious; ≥ ~60 Mbps is almost certainly slo-mo.
+  if (mbps >= 60) return 8;
+  if (mbps >= 25) return 4;
+  if (mbps >= 14) return 2;
+  return 1;
+}
 
 function fmtClock(seconds: number): string {
   if (!Number.isFinite(seconds) || seconds < 0) return '0.00s';
@@ -54,6 +80,10 @@ export default function BowlingVideoCapture() {
   const [hfModel, setHfModel] = useState<string>(HF_DEFAULT_MODEL);
   const [phase, setPhase] = useState<Phase>('source');
   const [distance, setDistance] = useState<number>(20.12);
+  const [slowdownFactor, setSlowdownFactor] = useState<number>(1);
+  // Tracks whether the heuristic auto-picked the factor (vs. user override).
+  // Lets us show a small "auto-detected" hint without locking the user in.
+  const [slowmoAutoSuggested, setSlowmoAutoSuggested] = useState<boolean>(false);
 
   // Live recording
   const previewRef  = useRef<HTMLVideoElement | null>(null);
@@ -147,7 +177,29 @@ export default function BowlingVideoCapture() {
     setReleaseSec(null);
     setPitchSec(null);
     setAi({ kind: 'idle' });
+    // Reset to normal; the heuristic below will bump it if the bitrate looks slo-mo.
+    setSlowdownFactor(1);
+    setSlowmoAutoSuggested(false);
     setPhase('review');
+
+    // Heuristic auto-suggest: once metadata loads we know duration + frame
+    // size, combine with the File's bytes to estimate bitrate. Runs once,
+    // off the side — the user can override the chip group either way.
+    const fileBytes = f.size;
+    const probe = document.createElement('video');
+    probe.preload = 'metadata';
+    probe.src = URL.createObjectURL(f);
+    probe.onloadedmetadata = () => {
+      const dur = probe.duration;
+      const px  = probe.videoWidth * probe.videoHeight;
+      const suggested = suggestSlowmoFactor(fileBytes, dur, px);
+      if (suggested > 1) {
+        setSlowdownFactor(suggested);
+        setSlowmoAutoSuggested(true);
+      }
+      URL.revokeObjectURL(probe.src);
+    };
+    probe.onerror = () => URL.revokeObjectURL(probe.src);
   }
 
   // ── AI flow ─────────────────────────────────────────────────────────────────
@@ -191,8 +243,14 @@ export default function BowlingVideoCapture() {
   function clearMarks()  { setReleaseSec(null); setPitchSec(null); }
 
   // ── compute ─────────────────────────────────────────────────────────────────
-  const durationMs = (releaseSec != null && pitchSec != null && pitchSec > releaseSec)
+  // Video-time elapsed between release and pitch marks.
+  const videoDurationMs = (releaseSec != null && pitchSec != null && pitchSec > releaseSec)
     ? Math.round((pitchSec - releaseSec) * 1000)
+    : null;
+  // Real-world elapsed = video elapsed ÷ slowdown factor. A 4× slo-mo clip
+  // shows 800ms of video for what was actually 200ms of real time.
+  const durationMs = videoDurationMs != null
+    ? Math.max(1, Math.round(videoDurationMs / slowdownFactor))
     : null;
   const speedKmh = durationMs != null
     ? Math.round((distance / (durationMs / 1000)) * 3.6 * 10) / 10
@@ -211,6 +269,7 @@ export default function BowlingVideoCapture() {
       recordedVia:  fromAi ? 'camera_cv' : 'video_mark',
       releaseMs:    Math.round(releaseSec * 1000),
       pitchMs:      Math.round(pitchSec   * 1000),
+      note:         slowdownFactor !== 1 ? `slo-mo ${slowdownFactor}x` : null,
     });
     setSaving(false);
     if (!r.ok) { setSaveError(r.error); return; }
@@ -261,6 +320,13 @@ export default function BowlingVideoCapture() {
 
       <DistancePicker value={distance} onChange={setDistance} disabled={phase === 'recording'} />
 
+      <SlowMoPicker
+        value={slowdownFactor}
+        autoSuggested={slowmoAutoSuggested}
+        onChange={f => { setSlowdownFactor(f); setSlowmoAutoSuggested(false); }}
+        disabled={phase === 'recording'}
+      />
+
       {phase === 'source' && (
         <SourcePicker onRecord={startRecording} onPick={onPickFile} error={recError} />
       )}
@@ -287,6 +353,8 @@ export default function BowlingVideoCapture() {
           speedKmh={speedKmh}
           isOutlier={isOutlier}
           durationMs={durationMs}
+          videoDurationMs={videoDurationMs}
+          slowdownFactor={slowdownFactor}
           distance={distance}
           saving={saving}
           saveError={saveError}
@@ -421,6 +489,57 @@ function ModeButton({
   );
 }
 
+function SlowMoPicker({
+  value, autoSuggested, onChange, disabled,
+}: {
+  value: number;
+  autoSuggested: boolean;
+  onChange: (factor: number) => void;
+  disabled: boolean;
+}) {
+  return (
+    <div className="rounded-2xl border border-gray-800 bg-gray-900 p-3">
+      <div className="flex items-center justify-between mb-2 gap-2">
+        <p className="text-[11px] font-semibold uppercase tracking-wider text-gray-400">
+          Slo-mo factor
+        </p>
+        {autoSuggested && (
+          <span className="text-[10px] uppercase tracking-wider font-bold text-sky-300 bg-sky-500/10 ring-1 ring-sky-500/30 rounded-full px-2 py-0.5">
+            Auto-detected
+          </span>
+        )}
+      </div>
+      <div className="flex gap-2 flex-wrap">
+        {SLOWMO_PRESETS.map(p => {
+          const active = value === p.factor;
+          return (
+            <button
+              key={p.label}
+              type="button"
+              disabled={disabled}
+              onClick={() => onChange(p.factor)}
+              className={`px-3 py-1.5 rounded-full text-xs font-semibold transition-colors disabled:opacity-50 ${
+                active
+                  ? 'bg-sky-500 text-gray-950'
+                  : 'bg-gray-800 text-gray-300 border border-gray-700 hover:border-gray-600'
+              }`}
+            >
+              {p.label}
+              <span className={`ml-1 text-[10px] ${active ? 'text-gray-900/70' : 'text-gray-500'}`}>
+                · {p.hint}
+              </span>
+            </button>
+          );
+        })}
+      </div>
+      <p className="text-[10px] text-gray-500 mt-2 leading-relaxed">
+        A 4× slo-mo clip marked as Normal will read ¼ the real speed. We try to detect this from
+        the file&apos;s bitrate on upload — verify before saving.
+      </p>
+    </div>
+  );
+}
+
 function DistancePicker({
   value, onChange, disabled,
 }: { value: number; onChange: (n: number) => void; disabled: boolean }) {
@@ -551,7 +670,9 @@ function ReviewView(props: {
   onRetryAi:     () => void;
   speedKmh:   number | null;
   isOutlier:  boolean;
-  durationMs: number | null;
+  durationMs:      number | null;
+  videoDurationMs: number | null;
+  slowdownFactor:  number;
   distance:   number;
   saving:     boolean;
   saveError:  string | null;
@@ -561,7 +682,8 @@ function ReviewView(props: {
     mode, ai, aiFallback, showManualMarks,
     videoRef, clipUrl, releaseSec, pitchSec,
     onMarkRelease, onMarkPitch, onClearMarks, onRestart, onRetryAi,
-    speedKmh, isOutlier, durationMs, distance, saving, saveError, onSave,
+    speedKmh, isOutlier, durationMs, videoDurationMs, slowdownFactor,
+    distance, saving, saveError, onSave,
   } = props;
 
   const invertedOrder = releaseSec != null && pitchSec != null && pitchSec <= releaseSec;
@@ -632,6 +754,8 @@ function ReviewView(props: {
           speedKmh={speedKmh}
           isOutlier={isOutlier}
           durationMs={durationMs!}
+          videoDurationMs={videoDurationMs ?? durationMs!}
+          slowdownFactor={slowdownFactor}
           distance={distance}
           saving={saving}
           error={saveError}
@@ -749,18 +873,22 @@ function AiErrorBanner({ message, onRetry }: { message: string; onRetry: () => v
 }
 
 function ResultCard({
-  speedKmh, isOutlier, durationMs, distance, saving, error, onSave,
+  speedKmh, isOutlier, durationMs, videoDurationMs, slowdownFactor,
+  distance, saving, error, onSave,
 }: {
-  speedKmh: number; isOutlier: boolean; durationMs: number; distance: number;
-  saving: boolean; error: string | null; onSave: () => void;
+  speedKmh: number; isOutlier: boolean;
+  durationMs: number; videoDurationMs: number; slowdownFactor: number;
+  distance: number; saving: boolean; error: string | null; onSave: () => void;
 }) {
+  const showSlowmo = slowdownFactor !== 1;
   if (isOutlier) {
     return (
       <div className="rounded-2xl border border-rose-900/60 bg-rose-950/30 p-5 flex flex-col items-center gap-2 text-center">
         <p className="text-[11px] font-bold uppercase tracking-wider text-rose-400">Reading looks off</p>
         <p className="text-3xl font-extrabold text-rose-200 tabular-nums">{speedKmh.toFixed(1)} km/h</p>
-        <p className="text-xs text-gray-400 max-w-[32ch] leading-relaxed">
-          That&apos;s outside 30–140 km/h. Check pitch-length and your marks, then try again.
+        <p className="text-xs text-gray-400 max-w-[36ch] leading-relaxed">
+          That&apos;s outside 30–140 km/h. Check the pitch-length and slo-mo settings — a 4× clip
+          marked as Normal will read ¼ the real speed.
         </p>
       </div>
     );
@@ -772,7 +900,12 @@ function ResultCard({
         {speedKmh.toFixed(1)}
         <span className="text-xl text-emerald-300 font-bold ml-2">km/h</span>
       </p>
-      <p className="text-[11px] text-gray-500">{distance.toFixed(2)} m · {durationMs} ms</p>
+      <p className="text-[11px] text-gray-500">
+        {distance.toFixed(2)} m · {durationMs} ms
+        {showSlowmo && (
+          <span className="text-sky-300"> · {videoDurationMs} ms video ÷ {slowdownFactor}× slo-mo</span>
+        )}
+      </p>
       {error && (
         <p className="text-xs text-rose-300 bg-rose-950/40 border border-rose-900/60 rounded-lg px-3 py-2 max-w-full">
           {error}
