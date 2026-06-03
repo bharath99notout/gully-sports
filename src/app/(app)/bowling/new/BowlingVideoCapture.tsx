@@ -230,6 +230,12 @@ export default function BowlingVideoCapture() {
         video.addEventListener('loadedmetadata', fn);
       });
     }
+    // Clear any prior marks so Retry AI doesn't inherit a stale pitch from a
+    // previous run that DID detect bounce — pre-filling pitch at a time
+    // before release looks like a bug (it is) when the new run only finds
+    // release.
+    setReleaseSec(null);
+    setPitchSec(null);
     setAi({ kind: 'running', progress: 0 });
     try {
       const result = engine === 'huggingface'
@@ -252,9 +258,13 @@ export default function BowlingVideoCapture() {
       setAi({ kind: 'done', result });
 
       // Pre-fill marks from AI results so the manual UI can take over cleanly
-      // if confidence is low or the user wants to nudge.
+      // if confidence is low or the user wants to nudge. Guard against the
+      // "bounce before release" case by only pre-filling pitch when both
+      // marks exist AND bounce strictly follows release.
       if (result.releaseMs != null) setReleaseSec(result.releaseMs / 1000);
-      if (result.bounceMs  != null) setPitchSec(result.bounceMs  / 1000);
+      if (result.bounceMs != null && result.releaseMs != null && result.bounceMs > result.releaseMs) {
+        setPitchSec(result.bounceMs / 1000);
+      }
     } catch (e) {
       setAi({ kind: 'error', message: e instanceof Error ? e.message : 'AI analysis failed' });
     }
