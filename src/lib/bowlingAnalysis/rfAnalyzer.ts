@@ -96,7 +96,10 @@ function pickBall(detections: RfDetection[]): FrameSample['ball'] {
 function detectReleaseFromBall(samples: FrameSample[]): { timeMs: number | null; confidence: number } {
   const withBall = samples.filter(s => s.ball != null);
   if (withBall.length === 0) return { timeMs: null, confidence: 0 };
-  const first = withBall.find(s => (s.ball?.score ?? 0) >= 0.30) ?? withBall[0];
+  // Pick the FIRST plausible ball detection — but bias the picker toward
+  // higher-scoring hits when several early frames have detections. Threshold
+  // dropped from 0.30 to 0.20 to match the route's lowered confidence filter.
+  const first = withBall.find(s => (s.ball?.score ?? 0) >= 0.20) ?? withBall[0];
   const conf = Math.min(1, (first.ball?.score ?? 0));
   return { timeMs: first.timeMs, confidence: conf };
 }

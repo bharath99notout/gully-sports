@@ -80,9 +80,13 @@ export async function POST(req: Request) {
   }
 
   const model = body.model.trim();
-  // Confidence: 25 is a permissive default that still filters out noise.
-  // Overlap: how much two detections can share before NMS removes one.
-  const rfUrl = `https://detect.roboflow.com/${model}?api_key=${encodeURIComponent(apiKey)}&confidence=25&overlap=30`;
+  // Confidence threshold (0-100). Lowered from Roboflow's default 40 to 15:
+  // amateur cricket footage often has motion blur, small balls, and partial
+  // occlusion that drag legitimate detection scores into the 15-30 range.
+  // The score is still returned per-detection so the analyzer's downstream
+  // confidence calc isn't fooled by low-quality hits.
+  // Overlap: max IoU between two boxes before NMS removes one (30 = standard).
+  const rfUrl = `https://detect.roboflow.com/${model}?api_key=${encodeURIComponent(apiKey)}&confidence=15&overlap=30`;
 
   let upstream: Response;
   try {
