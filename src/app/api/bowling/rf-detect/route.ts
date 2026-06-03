@@ -56,9 +56,13 @@ export async function POST(req: Request) {
   if (!body.imageDataUrl || !body.imageDataUrl.startsWith('data:image/')) {
     return NextResponse.json({ error: 'imageDataUrl must be a data: URL' }, { status: 400 });
   }
-  if (!body.model || !/^[^/]+\/[^/]+\/\d+$/.test(body.model.trim())) {
+  // Roboflow accepts two URL shapes:
+  //   "project/version"           — e.g. cricket-ball-detection-4eqb0/2
+  //   "workspace/project/version" — e.g. roboflow-100/sport-ball/2
+  // Both are valid POST targets at detect.roboflow.com. Allow either.
+  if (!body.model || !/^[^/]+\/(?:[^/]+\/)?\d+$/.test(body.model.trim())) {
     return NextResponse.json(
-      { error: 'model must be of the form "workspace/project/version" (find this on the model\'s Roboflow Universe page)' },
+      { error: 'model must be "project/version" or "workspace/project/version" (from the model\'s Roboflow Universe "Use API" tab)' },
       { status: 400 },
     );
   }
