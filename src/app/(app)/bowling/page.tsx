@@ -1,8 +1,8 @@
 import { redirect } from 'next/navigation';
-import Link from 'next/link';
-import { Plus, Trash2 } from 'lucide-react';
+import { Trash2 } from 'lucide-react';
 import { getServerAuth } from '@/lib/supabase/server';
 import { getMyBowlingDeliveries, getBowlingDna, deleteBowlingDelivery } from '@/app/actions/bowlingDeliveries';
+import SpeedGunLauncher from '@/components/SpeedGunLauncher';
 import type { BowlingDelivery } from '@/types';
 
 export const metadata = {
@@ -31,31 +31,26 @@ export default async function BowlingPage() {
 
   return (
     <div className="max-w-2xl mx-auto px-4 py-6 flex flex-col gap-5">
-      <div className="flex items-center justify-between gap-3">
+      <div className="flex items-start justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold text-white">Bowling DNA</h1>
           <p className="text-xs text-gray-500 mt-0.5">Your speed history — private to you.</p>
         </div>
-        <Link
-          href="/bowling/new"
-          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-gray-950 text-sm font-bold shrink-0"
-        >
-          <Plus size={14} /> New
-        </Link>
       </div>
+
+      <SpeedGunLauncher
+        variant="card"
+        title="Measure a delivery"
+        subtitle="Two taps. Release → bounce. See your km/h."
+      />
 
       <DnaStrip dna={dna} />
 
       {valid.length === 0 && outliers.length === 0 ? (
-        <Link
-          href="/bowling/new"
-          className="rounded-2xl border border-dashed border-gray-700 hover:border-emerald-700 bg-gray-900/40 hover:bg-emerald-950/20 px-4 py-8 text-center transition-colors"
-        >
+        <div className="rounded-2xl border border-dashed border-gray-700 bg-gray-900/40 px-4 py-8 text-center">
           <p className="text-sm text-gray-400">No deliveries yet.</p>
-          <p className="text-base font-semibold text-emerald-400 mt-1 inline-flex items-center gap-1">
-            <Plus size={14} /> Capture your first
-          </p>
-        </Link>
+          <p className="text-[11px] text-gray-500 mt-1">Tap the speed gun above to capture your first.</p>
+        </div>
       ) : (
         <>
           {valid.length > 0 && (

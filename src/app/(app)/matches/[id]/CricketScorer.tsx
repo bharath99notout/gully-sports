@@ -8,6 +8,7 @@ import Card from '@/components/ui/Card';
 import { Plus, X, ChevronDown, Trophy, Target } from 'lucide-react';
 import { Match, MatchScore, MatchPlayer, CricketPlayerStat } from '@/types';
 import PlayerSearchAndAdd, { type PlayerAddResult } from '@/components/PlayerSearchAndAdd';
+import SpeedGunLauncher from '@/components/SpeedGunLauncher';
 import { emitMatchScoreUpdate } from '@/lib/matchLiveBus';
 
 interface Props {
@@ -596,6 +597,15 @@ export default function CricketScorer({
                   stats={bowlerId ? getStats(bowlerId) : null}
                   onChange={v => changeSelect(setBowlerId, 'bowler_id', v)}
                 />
+
+                {bowlerId && scoringActive && (
+                  <div className="mt-2 flex items-center justify-end">
+                    <SpeedGunLauncher
+                      variant="icon"
+                      matchId={match.id}
+                    />
+                  </div>
+                )}
 
                 {battingPlayers.length === 0 && (
                   <p className="text-xs text-amber-600 mt-2.5">↓ Add players to {battingTeam} in Match Players below</p>

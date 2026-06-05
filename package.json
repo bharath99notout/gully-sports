@@ -9,7 +9,6 @@
     "lint": "eslint"
   },
   "dependencies": {
-    "@mediapipe/tasks-vision": "^0.10.21",
     "@supabase/ssr": "^0.10.2",
     "@supabase/supabase-js": "^2.104.0",
     "@vercel/analytics": "^2.0.1",
