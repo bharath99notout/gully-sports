@@ -206,7 +206,11 @@ export default async function MatchDetailPage({ params, searchParams }: Props) {
     ]));
   }
 
-  const impactRows = match.status !== 'upcoming'
+  // Per-player impact (MVP, points, caliber) shows only AFTER the match
+  // ends. During a live match the numbers change every ball and surfacing
+  // an "MVP" / "+35 pts" tally while the game is still being played is
+  // premature and misleading.
+  const impactRows = match.status === 'completed'
     ? buildMatchPlayerImpactRows(
         match.sport as SportKey,
         {
