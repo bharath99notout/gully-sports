@@ -9,6 +9,7 @@ import { Plus, X, ChevronDown, Trophy, Target } from 'lucide-react';
 import { Match, MatchScore, MatchPlayer, CricketPlayerStat } from '@/types';
 import PlayerSearchAndAdd, { type PlayerAddResult } from '@/components/PlayerSearchAndAdd';
 import SpeedGunLauncher from '@/components/SpeedGunLauncher';
+import BowlerSpeedStrip from '@/components/BowlerSpeedStrip';
 import { emitMatchScoreUpdate } from '@/lib/matchLiveBus';
 
 interface Props {
@@ -599,11 +600,14 @@ export default function CricketScorer({
                 />
 
                 {bowlerId && scoringActive && (
-                  <div className="mt-2 flex items-center justify-end">
-                    <SpeedGunLauncher
-                      variant="icon"
-                      matchId={match.id}
-                    />
+                  <div className="mt-2 flex flex-col gap-2">
+                    <BowlerSpeedStrip matchId={match.id} bowlerId={bowlerId} />
+                    <div className="flex items-center justify-end">
+                      <SpeedGunLauncher
+                        variant="icon"
+                        matchId={match.id}
+                      />
+                    </div>
                   </div>
                 )}
 

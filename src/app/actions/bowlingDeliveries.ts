@@ -107,6 +107,38 @@ export async function getMyBowlingDeliveries(
   return (data ?? []) as BowlingDelivery[];
 }
 
+/**
+ * Recent speed readings for a single bowler in a single match. Used by the
+ * live scorer to surface immediate feedback ("⚡ 78 km/h · peak 92") after
+ * a delivery is captured, instead of letting the reading disappear into
+ * the DB. Outliers excluded so peak/avg aren't poisoned by mistimed taps.
+ */
+export async function getRecentBowlerSpeeds(
+  matchId: string,
+  bowlerId: string,
+  limit = 6,
+): Promise<{ deliveries: Array<{ id: string; speed_kmh: number; recorded_at: string }>; peak: number | null; avg: number | null }> {
+  const { supabase } = await getServerAuth();
+  const { data } = await supabase
+    .from('bowling_deliveries')
+    .select('id, speed_kmh, recorded_at')
+    .eq('match_id', matchId)
+    .eq('bowler_id', bowlerId)
+    .eq('speed_is_outlier', false)
+    .order('recorded_at', { ascending: false })
+    .limit(limit);
+
+  const rows = (data ?? []) as Array<{ id: string; speed_kmh: number; recorded_at: string }>;
+  if (rows.length === 0) return { deliveries: [], peak: null, avg: null };
+  const peak = rows.reduce((m, r) => Math.max(m, r.speed_kmh), 0);
+  const avg  = rows.reduce((s, r) => s + r.speed_kmh, 0) / rows.length;
+  return {
+    deliveries: rows,
+    peak: Math.round(peak * 10) / 10,
+    avg:  Math.round(avg  * 10) / 10,
+  };
+}
+
 /** Public DNA card data for any player. Honours RLS — only public + match
  *  deliveries leak to viewers other than the bowler. */
 export async function getBowlingDna(

@@ -110,6 +110,14 @@ export default function SpeedGun({
     });
     setSaving(false);
     if (!r.ok) { setError(r.error); return; }
+    // Tell anyone watching (BowlerSpeedStrip in the live scorer, future
+    // surfaces) that a fresh reading just landed. Detail lets listeners
+    // filter by match so unrelated open tabs don't spuriously refetch.
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('gs:bowling-speed-saved', {
+        detail: { matchId: matchId ?? null, speedKmh: r.data.delivery.speed_kmh },
+      }));
+    }
     onSaved?.();
   }
 
