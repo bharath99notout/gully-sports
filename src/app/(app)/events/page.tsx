@@ -84,7 +84,7 @@ export default async function EventsPage({
         {user && (
           <Link
             href="/events/new"
-            className="inline-flex items-center justify-center gap-1.5 bg-emerald-600 hover:bg-emerald-500 active:bg-emerald-700 text-white text-sm font-semibold px-4 py-2.5 rounded-xl w-full sm:w-auto shrink-0 shadow-sm shadow-emerald-900/30"
+            className="inline-flex items-center justify-center gap-1.5 bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 active:from-emerald-600 active:to-teal-600 text-white text-sm font-bold px-4 py-3 rounded-xl w-full sm:w-auto shrink-0 shadow-lg shadow-emerald-500/25 ring-1 ring-emerald-400/30 transition-all active:scale-[0.99]"
           >
             <Plus size={16} strokeWidth={2.5} /> New event
           </Link>
@@ -201,7 +201,7 @@ function EventRow({ event: e, venue }: { event: EventListRow; venue: VenueDispla
         <div className="flex items-start gap-3">
           {/* Sport shown as an image-style tile — the icon carries the sport,
               so we drop the redundant sport word from the text below. */}
-          <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-gray-800/80 text-2xl ring-1 ring-white/5">
+          <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-emerald-700/30 to-gray-800 text-2xl ring-1 ring-emerald-500/15 shadow-inner shadow-black/30">
             <SportIcon sport={e.sport} />
           </div>
           <div className="flex-1 min-w-0">
@@ -246,12 +246,12 @@ function EventRow({ event: e, venue }: { event: EventListRow; venue: VenueDispla
                       // eslint-disable-next-line @next/next/no-img-element
                       <img
                         key={p.id} src={p.avatarUrl} alt={p.name} title={p.name}
-                        className="w-6 h-6 rounded-full object-cover border-2 border-gray-900 shrink-0"
+                        className="w-7 h-7 rounded-full object-cover ring-2 ring-gray-900 border border-gray-600 shrink-0"
                       />
                     ) : (
                       <div
                         key={p.id} title={p.name}
-                        className="w-6 h-6 rounded-full bg-gradient-to-br from-emerald-500 to-teal-700 flex items-center justify-center text-[10px] font-bold text-white border-2 border-gray-900 shrink-0"
+                        className="w-7 h-7 rounded-full bg-gradient-to-br from-emerald-400 to-teal-600 flex items-center justify-center text-[11px] font-bold text-white ring-2 ring-gray-900 shadow-sm shadow-emerald-900/40 shrink-0"
                       >
                         {p.name[0]?.toUpperCase() ?? '?'}
                       </div>
