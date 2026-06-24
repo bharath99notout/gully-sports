@@ -53,7 +53,13 @@ export default async function DashboardPage() {
 
   const [{ data: profile }, { data: myStats }, { data: myMatchPlayers }] = bundle;
 
-  const myMatchIds = [...new Set((myStats ?? []).map(s => s.match_id))];
+  // Include matches the player was added to (match_players) even when they
+  // have no player_match_stats row yet — e.g. a cricket player who hasn't
+  // batted/bowled. Mirrors the /matches page so the dashboard feed matches it.
+  const myMatchIds = [...new Set([
+    ...(myStats ?? []).map(s => s.match_id),
+    ...(myMatchPlayers ?? []).map(p => p.match_id),
+  ])];
 
   const [rawFeedRes, detailedStats] = await Promise.all([
     myMatchIds.length > 0
