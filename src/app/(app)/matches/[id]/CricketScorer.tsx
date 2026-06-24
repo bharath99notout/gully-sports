@@ -5,6 +5,7 @@ import { createClient } from '@/lib/supabase/client';
 import { offlineMutate } from '@/lib/offline/mutate';
 import { reloadMatchClean } from '@/lib/matchNav';
 import Card from '@/components/ui/Card';
+import Button from '@/components/ui/Button';
 import { Plus, X, ChevronDown, Trophy, Target } from 'lucide-react';
 import { Match, MatchScore, MatchPlayer, CricketPlayerStat } from '@/types';
 import PlayerSearchAndAdd, { type PlayerAddResult } from '@/components/PlayerSearchAndAdd';
@@ -131,8 +132,24 @@ export default function CricketScorer({
     ? (battingTeam === match.team_a_name ? (scoreB?.runs ?? 0) : (scoreA?.runs ?? 0)) + 1
     : null;
 
-  // Max wickets before all-out (team size - 1, min 1)
-  const maxWickets = battingPlayers.length >= 2 ? battingPlayers.length - 1 : 10;
+  // Batsmen on the batting side who can still come to the crease: not yet
+  // dismissed, and not one of the two batsmen currently in. "All out" is based
+  // on who is actually available rather than the full roster size, so a player
+  // who was added to the team but never showed up to bat doesn't block the
+  // innings from ending. Remove a no-show from Match Players to let auto
+  // all-out fire, or use the manual "Close innings" button below at any time.
+  function availableBatsmen(
+    strikerPid: string | null,
+    nonStrikerPid: string | null,
+    justOutPid: string | null,
+  ): MatchPlayer[] {
+    return battingPlayers.filter(p =>
+      p.player_id !== strikerPid &&
+      p.player_id !== nonStrikerPid &&
+      p.player_id !== justOutPid &&
+      !getStats(p.player_id).is_out
+    );
+  }
 
   function patchScore(team: string, patch: Partial<MatchScore>) {
     if (team === match.team_a_name) setScoreA(p => p ? { ...p, ...patch } : p);
@@ -198,9 +215,19 @@ export default function CricketScorer({
     }
   }
 
-  async function checkAllOut(newWickets: number) {
+  // Called right after a wicket. The innings is over when the surviving
+  // batsman has no not-out partner available to come in (≤1 batsman left and
+  // no available replacement) — independent of how many players were rostered.
+  async function checkAllOut(
+    newWickets: number,
+    survivorStriker: string | null,
+    survivorNonStriker: string | null,
+    justOutPid: string | null,
+  ) {
     if (battingPlayers.length < 2) return;
-    if (newWickets < maxWickets) return;
+    const survivors = [survivorStriker, survivorNonStriker].filter(Boolean).length;
+    const available = availableBatsmen(survivorStriker, survivorNonStriker, justOutPid).length;
+    if (survivors > 1 || available > 0) return;  // partnership can continue
 
     if (innings === 1) {
       // All out in 1st innings — auto-switch to 2nd innings
@@ -344,7 +371,7 @@ export default function CricketScorer({
     setBusy(false);
 
     // Check all-out after all state is updated
-    await checkAllOut(newWickets);
+    await checkAllOut(newWickets, newStriker, newNonStriker, dismissedId);
   }
 
   async function closeInnings() {
@@ -512,7 +539,8 @@ export default function CricketScorer({
       {allOutMsg && (
         <div className="bg-orange-950/30 border border-orange-800/50 rounded-xl px-4 py-3 flex items-start justify-between gap-2">
           <p className="text-sm text-orange-300">{allOutMsg}</p>
-          <button onClick={() => setAllOutMsg(null)} className="text-gray-500 hover:text-gray-300 shrink-0">
+          <button onClick={() => setAllOutMsg(null)} aria-label="Dismiss notification"
+            className="text-gray-500 hover:text-gray-300 shrink-0 p-1 -m-1">
             <X size={14} />
           </button>
         </div>
@@ -546,10 +574,10 @@ export default function CricketScorer({
               <p className="text-sm text-gray-400 mb-3">Who is batting first?</p>
               <div className="flex gap-2 justify-center">
                 {[match.team_a_name, match.team_b_name].map(t => (
-                  <button key={t} onClick={() => setBatting(t)}
-                    className="flex-1 py-2 px-3 bg-emerald-700 hover:bg-emerald-600 text-white text-sm rounded-xl font-medium">
+                  <Button key={t} variant="primary" size="lg" onClick={() => setBatting(t)}
+                    className="flex-1">
                     {t}
-                  </button>
+                  </Button>
                 ))}
               </div>
             </Card>
@@ -651,27 +679,27 @@ export default function CricketScorer({
 
                 <div className="grid grid-cols-3 gap-2">
                   <button onClick={() => handleRuns(1, true)} disabled={busy || !canScore}
-                    className="py-2.5 rounded-xl text-sm font-semibold bg-yellow-900/40 hover:bg-yellow-900/70 border border-yellow-700 text-yellow-300 disabled:opacity-30">
+                    className="min-h-[44px] py-3 rounded-xl text-sm font-semibold bg-yellow-900/40 hover:bg-yellow-900/70 border border-yellow-700 text-yellow-300 disabled:opacity-30">
                     Wide (+1)
                   </button>
                   <button onClick={() => handleRuns(1, true)} disabled={busy || !canScore}
-                    className="py-2.5 rounded-xl text-sm font-semibold bg-orange-900/40 hover:bg-orange-900/70 border border-orange-700 text-orange-300 disabled:opacity-30">
+                    className="min-h-[44px] py-3 rounded-xl text-sm font-semibold bg-orange-900/40 hover:bg-orange-900/70 border border-orange-700 text-orange-300 disabled:opacity-30">
                     No Ball
                   </button>
                   <button
                     onClick={() => { setDismissedId(strikerId); setWicketOpen(true); }}
                     disabled={busy || !canScore}
-                    className="py-2.5 rounded-xl text-sm font-bold bg-red-700 hover:bg-red-600 text-white disabled:opacity-30">
+                    className="min-h-[44px] py-3 rounded-xl text-sm font-bold bg-red-700 hover:bg-red-600 text-white disabled:opacity-30">
                     WICKET 🏏
                   </button>
                 </div>
 
                 {/* Close innings */}
                 <div className="mt-3 pt-3 border-t border-gray-800">
-                  <button onClick={closeInnings} disabled={busy}
-                    className="w-full py-2.5 rounded-xl text-sm font-semibold bg-gray-800 hover:bg-gray-700 border border-gray-700 hover:border-gray-600 text-gray-300 disabled:opacity-40 transition-colors">
+                  <Button variant="secondary" size="lg" onClick={closeInnings} disabled={busy}
+                    className="w-full">
                     {innings === 1 ? 'Close 1st Innings →' : 'End Match & Declare Winner'}
-                  </button>
+                  </Button>
                 </div>
               </Card>
             </>
@@ -701,7 +729,8 @@ export default function CricketScorer({
                             {s.wickets_taken > 0 && `${s.wickets_taken}w `}
                             {s.catches_taken > 0 && `${s.catches_taken}c`}
                           </span>
-                          <button onClick={() => removePlayer(p)} className="text-gray-700 hover:text-red-400 transition-colors">
+                          <button onClick={() => removePlayer(p)} aria-label={`Remove ${p.name}`}
+                            className="text-gray-700 hover:text-red-400 transition-colors p-1 -m-1">
                             <X size={12} />
                           </button>
                         </div>
@@ -752,7 +781,7 @@ export default function CricketScorer({
               <div className="flex flex-wrap gap-1.5">
                 {WICKET_TYPES.map(t => (
                   <button key={t} onClick={() => setWicketType(t)}
-                    className={`px-3 py-1 rounded-lg text-sm transition-colors ${
+                    className={`px-3 py-2 rounded-lg text-sm transition-colors ${
                       wicketType === t ? 'bg-red-700 text-white font-medium' : 'bg-gray-800 text-gray-300 hover:bg-gray-700'
                     }`}>
                     {t}
@@ -782,11 +811,8 @@ export default function CricketScorer({
             )}
 
             <div className="flex gap-2">
-              <button onClick={() => setWicketOpen(false)} className="flex-1 py-2 rounded-xl bg-gray-800 text-gray-300 text-sm">Cancel</button>
-              <button onClick={confirmWicket} disabled={busy}
-                className="flex-1 py-2 rounded-xl bg-red-700 hover:bg-red-600 text-white font-bold text-sm disabled:opacity-40">
-                {busy ? 'Saving…' : 'Confirm'}
-              </button>
+              <Button variant="secondary" size="lg" className="flex-1" onClick={() => setWicketOpen(false)}>Cancel</Button>
+              <Button variant="danger" size="lg" className="flex-1" loading={busy} onClick={confirmWicket}>Confirm</Button>
             </div>
           </div>
         </div>
@@ -834,11 +860,8 @@ export default function CricketScorer({
             </button>
 
             <div className="flex gap-2">
-              <button onClick={() => setDeclareOpen(false)} className="flex-1 py-2 rounded-xl bg-gray-800 text-gray-300 text-sm">Cancel</button>
-              <button onClick={confirmDeclare} disabled={busy}
-                className="flex-1 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-sm disabled:opacity-40">
-                {busy ? 'Saving…' : 'Confirm'}
-              </button>
+              <Button variant="secondary" size="lg" className="flex-1" onClick={() => setDeclareOpen(false)}>Cancel</Button>
+              <Button variant="primary" size="lg" className="flex-1" loading={busy} onClick={confirmDeclare}>Confirm</Button>
             </div>
           </div>
         </div>
