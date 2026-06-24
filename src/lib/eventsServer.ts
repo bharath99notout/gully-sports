@@ -10,6 +10,8 @@ export type EventListRow = Pick<
 > & {
   /** Count of confirmed-going RSVPs. Used to compute spots remaining. */
   going_count: number;
+  /** Up to 8 confirmed-going attendees (earliest first) for avatar previews. */
+  goingPreview: { id: string; name: string; avatarUrl: string | null }[];
 };
 
 export interface ListEventsOpts {
@@ -95,20 +97,47 @@ export async function listEvents(opts: ListEventsOpts = {}): Promise<EventListRo
   const events = (data ?? []) as Omit<EventListRow, 'going_count'>[];
   if (events.length === 0) return [];
 
-  // Going-counts in a single batch fetch. Cheaper than N+1; one indexed scan
-  // on (event_id, status) covers all the events we just read.
+  // Going RSVPs in a single batch fetch (cheaper than N+1; one indexed scan
+  // on (event_id, status) covers all events). We pull who's going too, so the
+  // cards can show attendee avatars — names/photos resolved in one more batch.
   const { data: rsvpRows } = await supabase
     .from('event_rsvps')
-    .select('event_id')
+    .select('event_id, player_id, guest_name')
     .eq('status', 'going')
-    .in('event_id', events.map(e => e.id));
+    .in('event_id', events.map(e => e.id))
+    .order('responded_at', { ascending: true });
+
+  const rsvps = (rsvpRows ?? []) as { event_id: string; player_id: string | null; guest_name: string | null }[];
+
+  const goingPlayerIds = Array.from(new Set(
+    rsvps.map(r => r.player_id).filter((x): x is string => !!x)
+  ));
+  const { data: profs } = goingPlayerIds.length > 0
+    ? await supabase.from('profiles').select('id, name, avatar_url').in('id', goingPlayerIds)
+    : { data: [] as Array<{ id: string; name: string; avatar_url: string | null }> };
+  const profById = new Map((profs ?? []).map(p => [p.id, p]));
 
   const goingByEvent = new Map<string, number>();
-  for (const r of (rsvpRows ?? []) as { event_id: string }[]) {
+  const previewByEvent = new Map<string, EventListRow['goingPreview']>();
+  for (const r of rsvps) {
     goingByEvent.set(r.event_id, (goingByEvent.get(r.event_id) ?? 0) + 1);
+    const list = previewByEvent.get(r.event_id) ?? [];
+    if (list.length < 8) {
+      const p = r.player_id ? profById.get(r.player_id) : null;
+      list.push({
+        id: r.player_id ?? `guest-${r.event_id}-${list.length}`,
+        name: p?.name ?? r.guest_name ?? 'Guest',
+        avatarUrl: p?.avatar_url ?? null,
+      });
+      previewByEvent.set(r.event_id, list);
+    }
   }
 
-  return events.map(e => ({ ...e, going_count: goingByEvent.get(e.id) ?? 0 }));
+  return events.map(e => ({
+    ...e,
+    going_count: goingByEvent.get(e.id) ?? 0,
+    goingPreview: previewByEvent.get(e.id) ?? [],
+  }));
 }
 
 export const getEvent = cache(async (id: string): Promise<SportEvent | null> => {

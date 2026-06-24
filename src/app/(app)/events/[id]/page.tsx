@@ -10,13 +10,8 @@ import EventMatchesSection from './EventMatchesSection';
 import HostControls from './HostControls';
 import { formatEventDateTime } from '@/lib/formatDateTime';
 import SportIcon from '@/components/SportIcon';
+import { resolveVenue } from '@/lib/venue';
 import type { SportType } from '@/types';
-
-/** Build a Google Maps "search by name" URL — works without coordinates and
- *  handles "Sarjapur" or "Indiranagar Park, Bengaluru" equally well. */
-function googleMapsSearchUrl(query: string): string {
-  return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(query)}`;
-}
 
 interface RsvpRow {
   id: string;
@@ -71,9 +66,10 @@ export default async function EventDetailPage({
     ...((assignmentsRaw ?? []).map(a => a.player_id)),
   ]));
   const { data: profileRows } = playerIds.length > 0
-    ? await supabase.from('profiles').select('id, name').in('id', playerIds)
-    : { data: [] as Array<{ id: string; name: string }> };
+    ? await supabase.from('profiles').select('id, name, avatar_url').in('id', playerIds)
+    : { data: [] as Array<{ id: string; name: string; avatar_url: string | null }> };
   const nameById = new Map((profileRows ?? []).map(p => [p.id, p.name]));
+  const avatarById = new Map((profileRows ?? []).map(p => [p.id, p.avatar_url ?? null]));
 
   const myRsvp = user ? rsvps.find(r => r.player_id === user.id) : null;
   const goingRsvps = rsvps.filter(r => r.status === 'going');
@@ -87,11 +83,16 @@ export default async function EventDetailPage({
     name: r.player_id
       ? (nameById.get(r.player_id) ?? 'Unknown')
       : (r.guest_name ?? 'Guest'),
+    avatarUrl: r.player_id ? (avatarById.get(r.player_id) ?? null) : null,
     isGuest: !r.player_id,
     isMe: !!user && r.player_id === user.id,
     status: r.status,
     phone: isHost ? r.guest_phone : null,
   }));
+
+  const venue = event.venue_name
+    ? await resolveVenue(event.venue_name, event.venue_map_url)
+    : null;
 
   const assignments = (assignmentsRaw ?? []).map(a => ({
     id: a.id,
@@ -126,27 +127,19 @@ export default async function EventDetailPage({
             <p className="text-xs text-gray-400 mt-1 capitalize flex items-center gap-1">
               <CalendarDays size={12} /> {event.sport.replace('_', ' ')} · {formatEventDateTime(event.start_at)}
             </p>
-            {event.venue_name && (() => {
-              // venue_name is free text and people often paste a raw maps URL
-              // into it. Show a clean "View location" label in that case
-              // instead of dumping the long URL across two lines.
-              const venueIsUrl = /^https?:\/\//i.test(event.venue_name);
-              const venueHref = event.venue_map_url
-                || (venueIsUrl ? event.venue_name : googleMapsSearchUrl(event.venue_name));
-              const venueLabel = venueIsUrl ? 'View location' : event.venue_name;
-              return (
-                <p className="text-xs text-gray-300 mt-1 flex items-center gap-1">
-                  <MapPin size={12} className="text-gray-500" />
-                  <a
-                    href={venueHref}
-                    target="_blank" rel="noopener noreferrer"
-                    className="hover:text-emerald-400 underline-offset-2 hover:underline truncate"
-                  >
-                    {venueLabel}
-                  </a>
-                </p>
-              );
-            })()}
+            {venue && (
+              <p className="text-xs text-gray-300 mt-1 flex items-center gap-1 min-w-0">
+                <MapPin size={12} className="text-gray-500 shrink-0" />
+                <a
+                  href={venue.href}
+                  target="_blank" rel="noopener noreferrer"
+                  title={venue.full}
+                  className="hover:text-emerald-400 underline-offset-2 hover:underline truncate"
+                >
+                  {venue.label}
+                </a>
+              </p>
+            )}
             <p className="text-xs text-gray-500 mt-2">
               Hosted by <span className="text-gray-300">{hostProfile?.name ?? 'Unknown'}</span>
               {event.capacity ? ` · ${goingCount}/${event.capacity} confirmed` : ` · ${goingCount} confirmed`}
@@ -276,7 +269,7 @@ function RsvpList({
   title: string;
   icon: React.ComponentType<{ size?: number; className?: string }>;
   tone: 'emerald' | 'amber' | 'gray' | 'red';
-  rows: { id: string; name: string; isGuest: boolean; isMe: boolean; status: string; phone: string | null }[];
+  rows: { id: string; name: string; avatarUrl: string | null; isGuest: boolean; isMe: boolean; status: string; phone: string | null }[];
   capacity: number | null;
   isHost: boolean;
 }) {
@@ -285,6 +278,12 @@ function RsvpList({
     amber:   'text-amber-400',
     red:     'text-red-400',
     gray:    'text-gray-400',
+  };
+  const ringCls: Record<string, string> = {
+    emerald: 'from-emerald-500 to-teal-700',
+    amber:   'from-amber-500 to-orange-700',
+    red:      'from-red-500 to-rose-800',
+    gray:     'from-gray-600 to-gray-800',
   };
   return (
     <section className="bg-gray-900 border border-gray-800 rounded-2xl p-4 flex flex-col gap-2">
@@ -297,10 +296,22 @@ function RsvpList({
       {rows.length === 0 ? (
         <p className="text-xs text-gray-500 italic">No one yet.</p>
       ) : (
-        <ul className="flex flex-col gap-1">
+        <ul className="flex flex-col gap-1.5">
           {rows.map(r => (
-            <li key={r.id} className="flex items-center justify-between gap-2 text-sm py-1">
-              <span className="truncate">
+            <li key={r.id} className="flex items-center gap-2.5 text-sm py-0.5">
+              {r.avatarUrl ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={r.avatarUrl}
+                  alt={r.name}
+                  className="w-8 h-8 rounded-full object-cover border border-gray-700 shrink-0"
+                />
+              ) : (
+                <div className={`w-8 h-8 rounded-full bg-gradient-to-br ${ringCls[tone]} flex items-center justify-center text-xs font-bold text-white border border-gray-700 shrink-0`}>
+                  {r.name[0]?.toUpperCase() ?? '?'}
+                </div>
+              )}
+              <span className="truncate min-w-0">
                 <span className={r.isMe ? 'text-emerald-300 font-semibold' : 'text-gray-200'}>{r.name}</span>
                 {r.isGuest && <span className="text-[10px] text-gray-600 ml-1.5 uppercase tracking-wider">guest</span>}
                 {r.isMe && <span className="text-[10px] text-gray-600 ml-1">(you)</span>}

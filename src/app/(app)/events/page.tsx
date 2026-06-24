@@ -5,6 +5,7 @@ import { listEvents, type EventListRow, type ListEventsOpts } from '@/lib/events
 import { getServerAuth } from '@/lib/supabase/server';
 import { formatEventDateTime } from '@/lib/formatDateTime';
 import SportIcon from '@/components/SportIcon';
+import { resolveVenue, type VenueDisplay } from '@/lib/venue';
 import type { SportType } from '@/types';
 import { SPORTS_LIST, SPORT_VALUES } from '@/lib/sports';
 
@@ -61,6 +62,13 @@ export default async function EventsPage({
   const opts: ListEventsOpts = { sport, when, recruiting, scope, limit: 50 };
   const { user } = await getServerAuth();
   const events = await listEvents(opts);
+
+  // Resolve venue labels (expand pasted maps links to readable names) for all
+  // events in parallel; cached for a day so this isn't paid on every render.
+  const venues = await Promise.all(
+    events.map(e => (e.venue_name ? resolveVenue(e.venue_name) : Promise.resolve(null)))
+  );
+  const venueById = new Map(events.map((e, i) => [e.id, venues[i]]));
 
   return (
     <div className="max-w-2xl mx-auto flex flex-col gap-4">
@@ -171,14 +179,14 @@ export default async function EventsPage({
         <EmptyState when={when} recruiting={recruiting} sport={sport} scope={scope} />
       ) : (
         <ul className="flex flex-col gap-2">
-          {events.map(e => <EventRow key={e.id} event={e} />)}
+          {events.map(e => <EventRow key={e.id} event={e} venue={venueById.get(e.id) ?? null} />)}
         </ul>
       )}
     </div>
   );
 }
 
-function EventRow({ event: e }: { event: EventListRow }) {
+function EventRow({ event: e, venue }: { event: EventListRow; venue: VenueDisplay | null }) {
   const slotsLeft = e.capacity != null ? Math.max(0, e.capacity - e.going_count) : null;
   const showRecruitingPill = e.recruiting && e.status === 'open';
 
@@ -191,7 +199,11 @@ function EventRow({ event: e }: { event: EventListRow }) {
         }`}
       >
         <div className="flex items-start gap-3">
-          <SportIcon sport={e.sport} className="text-2xl shrink-0" />
+          {/* Sport shown as an image-style tile — the icon carries the sport,
+              so we drop the redundant sport word from the text below. */}
+          <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-gray-800/80 text-2xl ring-1 ring-white/5">
+            <SportIcon sport={e.sport} />
+          </div>
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2 flex-wrap">
               <h3 className="text-sm font-semibold text-white truncate">{e.name}</h3>
@@ -207,20 +219,49 @@ function EventRow({ event: e }: { event: EventListRow }) {
                 </span>
               )}
             </div>
-            <p className="text-xs text-gray-400 mt-1 capitalize">
-              {e.sport.replace('_', ' ')} · {formatEventDateTime(e.start_at)}
+            <p className="text-xs text-gray-400 mt-1 flex items-center gap-1.5">
+              <CalendarDays size={12} className="shrink-0 text-gray-500" />
+              {formatEventDateTime(e.start_at)}
             </p>
-            {e.venue_name && (
-              <p className="text-xs text-gray-500 mt-0.5 flex items-center gap-1">
-                <MapPin size={11} />
-                <span className="truncate">{e.venue_name}</span>
-              </p>
-            )}
-            {e.capacity != null && (
-              <p className="text-xs text-gray-500 mt-0.5 flex items-center gap-1">
-                <Users size={11} />
-                {e.going_count}/{e.capacity} going
-              </p>
+            <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-gray-500">
+              {venue && (
+                <span className="inline-flex items-center gap-1 min-w-0" title={venue.full}>
+                  <MapPin size={11} className="shrink-0" />
+                  <span className="truncate">{venue.label}</span>
+                </span>
+              )}
+              {e.capacity != null && (
+                <span className="inline-flex items-center gap-1">
+                  <Users size={11} className="shrink-0" />
+                  {e.going_count}/{e.capacity} going
+                </span>
+              )}
+            </div>
+            {/* Faces of who's going — the count alone doesn't say who. */}
+            {e.goingPreview.length > 0 && (
+              <div className="mt-2 flex items-center gap-2">
+                <div className="flex -space-x-2">
+                  {e.goingPreview.slice(0, 5).map(p => (
+                    p.avatarUrl ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img
+                        key={p.id} src={p.avatarUrl} alt={p.name} title={p.name}
+                        className="w-6 h-6 rounded-full object-cover border-2 border-gray-900 shrink-0"
+                      />
+                    ) : (
+                      <div
+                        key={p.id} title={p.name}
+                        className="w-6 h-6 rounded-full bg-gradient-to-br from-emerald-500 to-teal-700 flex items-center justify-center text-[10px] font-bold text-white border-2 border-gray-900 shrink-0"
+                      >
+                        {p.name[0]?.toUpperCase() ?? '?'}
+                      </div>
+                    )
+                  ))}
+                </div>
+                {e.going_count > 5 && (
+                  <span className="text-[11px] text-gray-500">+{e.going_count - 5}</span>
+                )}
+              </div>
             )}
           </div>
         </div>
