@@ -230,17 +230,16 @@ export async function rejectMatch(matchId: string, notes?: string): Promise<Acti
   return { ok: true };
 }
 
-/** Permanently remove a match and all dependent rows (CASCADE). Admin only, completed matches only. */
+/** Permanently remove a match and all dependent rows (CASCADE). Admin only.
+ *  Allowed in any status — admins need to clear mistaken/abandoned live or
+ *  upcoming matches, not just completed ones. */
 export async function deleteMatchAsAdmin(matchId: string): Promise<ActionResult> {
   const { supabase, user, error } = await requireUser();
   if (error || !user) return { ok: false, error: error ?? 'Not signed in' };
   if (!(await isAdmin())) return { ok: false, error: 'Admin only' };
 
-  const { data: m } = await supabase.from('matches').select('status').eq('id', matchId).single();
+  const { data: m } = await supabase.from('matches').select('id').eq('id', matchId).single();
   if (!m) return { ok: false, error: 'Match not found' };
-  if (m.status !== 'completed') {
-    return { ok: false, error: 'You can only delete a match after it has ended (completed).' };
-  }
 
   const { error: delErr } = await supabase.from('matches').delete().eq('id', matchId);
   if (delErr) return { ok: false, error: delErr.message };

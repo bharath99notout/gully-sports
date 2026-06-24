@@ -248,19 +248,22 @@ export default async function MatchDetailPage({ params, searchParams }: Props) {
         }
       />
 
-      {/* Admin-only delete — only after the match has ended (not LIVE / upcoming). */}
-      {viewerIsAdmin && match.status === 'completed' && (
+      {/* Admin tools — delete is available in any status (clear mistaken or
+          abandoned live/upcoming matches); "Edit scores" stays completed-only. */}
+      {viewerIsAdmin && (
         <div className="rounded-xl border border-amber-800/60 bg-amber-950/20 px-3 py-2.5 flex flex-col gap-3">
           <div>
             <p className="text-[11px] font-semibold uppercase tracking-wide text-amber-400">Admin tools</p>
             <p className="text-[11px] text-gray-500 mt-0.5">
-              {inEditMode
-                ? 'Editing scores. Exit to see the post-match scorecard.'
-                : 'Edit scores in the scorecard below, or permanently delete the match (all scores, stats, and confirmations — CASCADE).'}
+              {match.status === 'completed'
+                ? (inEditMode
+                    ? 'Editing scores. Exit to see the post-match scorecard.'
+                    : 'Edit scores in the scorecard below, or permanently delete the match (all scores, stats, and confirmations — CASCADE).')
+                : 'Permanently delete this match (all scores, stats, and confirmations — CASCADE). This cannot be undone.'}
             </p>
           </div>
           <div className="flex flex-wrap gap-2 justify-end">
-            {inEditMode ? (
+            {match.status === 'completed' && (inEditMode ? (
               <a
                 href={`/matches/${match.id}#match-scorecard`}
                 className="inline-flex items-center justify-center rounded-xl text-sm px-3 py-2 font-semibold bg-gray-800 text-gray-200 border border-gray-700 hover:bg-gray-700 transition-colors"
@@ -274,7 +277,7 @@ export default async function MatchDetailPage({ params, searchParams }: Props) {
               >
                 Edit scores
               </a>
-            )}
+            ))}
             <AdminDeleteMatchButton matchId={match.id} />
           </div>
         </div>
