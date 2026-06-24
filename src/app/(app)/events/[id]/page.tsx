@@ -126,18 +126,27 @@ export default async function EventDetailPage({
             <p className="text-xs text-gray-400 mt-1 capitalize flex items-center gap-1">
               <CalendarDays size={12} /> {event.sport.replace('_', ' ')} · {formatEventDateTime(event.start_at)}
             </p>
-            {event.venue_name && (
-              <p className="text-xs text-gray-300 mt-1 flex items-center gap-1">
-                <MapPin size={12} className="text-gray-500" />
-                <a
-                  href={event.venue_map_url || googleMapsSearchUrl(event.venue_name)}
-                  target="_blank" rel="noopener noreferrer"
-                  className="hover:text-emerald-400 underline-offset-2 hover:underline"
-                >
-                  {event.venue_name}
-                </a>
-              </p>
-            )}
+            {event.venue_name && (() => {
+              // venue_name is free text and people often paste a raw maps URL
+              // into it. Show a clean "View location" label in that case
+              // instead of dumping the long URL across two lines.
+              const venueIsUrl = /^https?:\/\//i.test(event.venue_name);
+              const venueHref = event.venue_map_url
+                || (venueIsUrl ? event.venue_name : googleMapsSearchUrl(event.venue_name));
+              const venueLabel = venueIsUrl ? 'View location' : event.venue_name;
+              return (
+                <p className="text-xs text-gray-300 mt-1 flex items-center gap-1">
+                  <MapPin size={12} className="text-gray-500" />
+                  <a
+                    href={venueHref}
+                    target="_blank" rel="noopener noreferrer"
+                    className="hover:text-emerald-400 underline-offset-2 hover:underline truncate"
+                  >
+                    {venueLabel}
+                  </a>
+                </p>
+              );
+            })()}
             <p className="text-xs text-gray-500 mt-2">
               Hosted by <span className="text-gray-300">{hostProfile?.name ?? 'Unknown'}</span>
               {event.capacity ? ` · ${goingCount}/${event.capacity} confirmed` : ` · ${goingCount} confirmed`}

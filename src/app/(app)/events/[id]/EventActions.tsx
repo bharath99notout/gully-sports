@@ -81,16 +81,7 @@ export default function EventActions({
 
   return (
     <section className="bg-gray-900 border border-gray-800 rounded-2xl p-4 flex flex-col gap-3">
-      <div className="flex items-center justify-between gap-2">
-        <h2 className="text-sm font-semibold text-white">Are you in?</h2>
-        <button
-          type="button"
-          onClick={shareToWhatsApp}
-          className="inline-flex items-center gap-1.5 bg-emerald-700/30 hover:bg-emerald-700/50 text-emerald-200 text-xs font-semibold px-2.5 py-1.5 rounded-lg border border-emerald-800/60"
-        >
-          <Share2 size={12} /> Share to WhatsApp
-        </button>
-      </div>
+      <h2 className="text-sm font-semibold text-white">Are you in?</h2>
 
       <div className="grid grid-cols-3 gap-2">
         <RsvpButton
@@ -119,6 +110,18 @@ export default function EventActions({
         />
       </div>
 
+      {/* Share only surfaces once the viewer has RSVP'd — you invite people
+          after you're in, not before. */}
+      {myStatus && (
+        <button
+          type="button"
+          onClick={shareToWhatsApp}
+          className="inline-flex items-center justify-center gap-2 w-full bg-emerald-600 hover:bg-emerald-500 active:scale-[0.98] text-white text-sm font-semibold px-4 py-3 rounded-xl transition-all"
+        >
+          <Share2 size={16} /> Share to WhatsApp
+        </button>
+      )}
+
       {myStatus === 'waitlist' && (
         <p className="text-[11px] text-amber-300 bg-amber-950/30 border border-amber-900/50 rounded-lg px-2 py-1.5">
           You&apos;re on the waitlist — capacity is full. We&apos;ll auto-promote you if a confirmed player drops out.
@@ -144,7 +147,7 @@ function RsvpButton({
   label, icon: Icon, tone, active, loading, onClick, disabled,
 }: {
   label: string;
-  icon: React.ComponentType<{ size?: number }>;
+  icon: React.ComponentType<{ size?: number; className?: string }>;
   tone: 'emerald' | 'amber' | 'red';
   active: boolean;
   loading: boolean;
@@ -152,21 +155,31 @@ function RsvpButton({
   disabled: boolean;
 }) {
   const activeStyles: Record<string, string> = {
-    emerald: 'bg-emerald-600 border-emerald-500 text-white',
-    amber:   'bg-amber-700 border-amber-600 text-white',
-    red:     'bg-red-800 border-red-700 text-white',
+    emerald: 'bg-emerald-600 border-emerald-500 text-white shadow-lg shadow-emerald-900/40',
+    amber:   'bg-amber-600 border-amber-500 text-white shadow-lg shadow-amber-900/40',
+    red:     'bg-red-700 border-red-600 text-white shadow-lg shadow-red-900/40',
   };
-  const inactiveStyles = 'bg-gray-800 border-gray-700 text-gray-300 hover:bg-gray-700';
+  // Inactive buttons keep a tone-coloured icon and a visible border so each
+  // choice reads as a distinct, tappable control rather than a flat panel.
+  const inactiveIconTone: Record<string, string> = {
+    emerald: 'text-emerald-400',
+    amber:   'text-amber-400',
+    red:     'text-red-400',
+  };
   return (
     <button
       type="button"
       onClick={onClick}
       disabled={disabled || loading}
-      className={`flex flex-col items-center gap-1 py-2.5 px-2 rounded-xl border text-xs font-semibold transition-colors disabled:opacity-50 ${
-        active ? activeStyles[tone] : inactiveStyles
+      className={`flex flex-col items-center justify-center gap-1.5 min-h-[64px] py-3 px-2 rounded-xl border-2 text-xs font-semibold transition-all active:scale-[0.97] disabled:opacity-50 ${
+        active
+          ? activeStyles[tone]
+          : 'bg-gray-800 border-gray-600 text-gray-200 hover:bg-gray-700 hover:border-gray-500'
       }`}
     >
-      {loading ? <Loader2 size={14} className="animate-spin" /> : <Icon size={14} />}
+      {loading
+        ? <Loader2 size={22} className="animate-spin" />
+        : <Icon size={22} className={active ? undefined : inactiveIconTone[tone]} />}
       {label}
     </button>
   );
