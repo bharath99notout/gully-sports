@@ -2,16 +2,20 @@
 
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { Home, Users, Calendar, User, LogOut, Menu, X, Search, Medal, Share2, ShieldCheck, Hourglass, Bell, Award, CalendarDays } from 'lucide-react';
-import { useState } from 'react';
+import { Home, Users, Calendar, User, LogOut, Menu, X, Search, Medal, Share2, ShieldCheck, Bell, Award, CalendarDays, School, MoreHorizontal } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import AppLogoMark from '@/components/AppLogoMark';
 
-const navItems = [
+const primaryNavItems = [
   { href: '/dashboard',    label: 'Home',        icon: Home },
   { href: '/events',       label: 'Events',      icon: CalendarDays },
   { href: '/matches',      label: 'Matches',     icon: Calendar },
   { href: '/tournaments',  label: 'Tournaments', icon: Award },
+  { href: '/school',       label: 'School',      icon: School },
+];
+
+const secondaryNavItems = [
   { href: '/leaderboard',  label: 'Leaderboard', icon: Medal },
   { href: '/players',      label: 'Players',     icon: Search },
   { href: '/teams',        label: 'Teams',       icon: Users },
@@ -50,6 +54,19 @@ export default function Navbar({
   const pathname = usePathname();
   const router = useRouter();
   const [menuOpen, setMenuOpen] = useState(false);
+  const [moreOpen, setMoreOpen] = useState(false);
+  const moreRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!moreOpen) return;
+    function onDocMouseDown(event: MouseEvent) {
+      if (moreRef.current && !moreRef.current.contains(event.target as Node)) {
+        setMoreOpen(false);
+      }
+    }
+    document.addEventListener('mousedown', onDocMouseDown);
+    return () => document.removeEventListener('mousedown', onDocMouseDown);
+  }, [moreOpen]);
 
   async function signOut() {
     const supabase = createClient();
@@ -90,8 +107,8 @@ export default function Navbar({
         </Link>
 
         {/* Desktop nav */}
-        <div className="hidden md:flex items-center gap-1">
-          {navItems.map(({ href, label, icon: Icon }) => {
+        <div className="hidden lg:flex items-center gap-1">
+          {primaryNavItems.map(({ href, label, icon: Icon }) => {
             // Pending-confirmation count rides on Home. Keeps the badge near
             // the dashboard where the action is taken.
             const showPending = href === '/dashboard' && pendingCount > 0;
@@ -127,42 +144,87 @@ export default function Navbar({
               <CountBadge count={notificationCount} />
             </span>
           </Link>
-          {isAdmin && (
-            <Link
-              href="/admin/matches"
-              className={`relative flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm transition-colors ${
-                pathname.startsWith('/admin')
-                  ? 'bg-amber-900/40 text-amber-300'
-                  : 'text-amber-400/70 hover:text-amber-300 hover:bg-amber-900/20'
-              }`}
-              title="Admin queue"
-            >
-              <span className="relative">
-                <ShieldCheck size={16} />
-                <CountBadge count={adminQueueCount} />
-              </span>
-              Admin
-            </Link>
-          )}
           <button
             onClick={shareApp}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm text-emerald-400 hover:text-emerald-300 hover:bg-emerald-900/30 transition-colors ml-2"
+            className="flex items-center justify-center rounded-lg p-2 text-emerald-400 transition-colors hover:bg-emerald-900/30 hover:text-emerald-300"
             title="Share GullySports"
           >
             <Share2 size={16} />
-            Share
           </button>
-          <button
-            onClick={signOut}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm text-gray-400 hover:text-red-400 hover:bg-gray-800 transition-colors"
-          >
-            <LogOut size={16} />
-            Sign Out
-          </button>
+          <div ref={moreRef} className="relative">
+            <button
+              type="button"
+              onClick={() => setMoreOpen(current => !current)}
+              className={`relative flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm transition-colors ${
+                secondaryNavItems.some(item => pathname.startsWith(item.href)) || (isAdmin && pathname.startsWith('/admin'))
+                  ? 'bg-emerald-900/50 text-emerald-400'
+                  : 'text-gray-400 hover:bg-gray-800 hover:text-white'
+              }`}
+              aria-haspopup="menu"
+              aria-expanded={moreOpen}
+            >
+              <span className="relative">
+                <MoreHorizontal size={16} />
+                <CountBadge count={isAdmin ? adminQueueCount : 0} />
+              </span>
+              More
+            </button>
+            {moreOpen && (
+              <div className="absolute right-0 top-full z-50 mt-2 w-56 overflow-hidden rounded-xl border border-gray-800 bg-gray-950 p-1 shadow-2xl" role="menu">
+                {secondaryNavItems.map(({ href, label, icon: Icon }) => (
+                  <Link
+                    key={href}
+                    href={href}
+                    onClick={() => setMoreOpen(false)}
+                    className={`flex items-center gap-2 rounded-lg px-3 py-2 text-sm transition-colors ${
+                      pathname.startsWith(href)
+                        ? 'bg-emerald-900/50 text-emerald-400'
+                        : 'text-gray-400 hover:bg-gray-900 hover:text-white'
+                    }`}
+                    role="menuitem"
+                  >
+                    <Icon size={16} />
+                    {label}
+                  </Link>
+                ))}
+                {isAdmin && (
+                  <Link
+                    href="/admin"
+                    onClick={() => setMoreOpen(false)}
+                    className={`flex items-center justify-between gap-2 rounded-lg px-3 py-2 text-sm transition-colors ${
+                      pathname.startsWith('/admin')
+                        ? 'bg-amber-900/40 text-amber-300'
+                        : 'text-amber-400/80 hover:bg-amber-900/20 hover:text-amber-300'
+                    }`}
+                    role="menuitem"
+                  >
+                    <span className="flex items-center gap-2">
+                      <ShieldCheck size={16} />
+                      Admin
+                    </span>
+                    {adminQueueCount > 0 && (
+                      <span className="inline-flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-bold text-white">
+                        {adminQueueCount > 9 ? '9+' : adminQueueCount}
+                      </span>
+                    )}
+                  </Link>
+                )}
+                <button
+                  type="button"
+                  onClick={() => { setMoreOpen(false); void signOut(); }}
+                  className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-gray-400 transition-colors hover:bg-gray-900 hover:text-red-400"
+                  role="menuitem"
+                >
+                  <LogOut size={16} />
+                  Sign Out
+                </button>
+              </div>
+            )}
+          </div>
         </div>
 
         {/* Mobile share icon + menu toggle */}
-        <div className="md:hidden flex items-center gap-1">
+        <div className="flex items-center gap-1 lg:hidden">
           <button
             onClick={shareApp}
             className="p-2 text-emerald-400 hover:text-emerald-300"
@@ -184,15 +246,17 @@ export default function Navbar({
 
       {/* Mobile menu */}
       {menuOpen && (
-        <div className="md:hidden border-t border-gray-800 bg-gray-950 px-4 py-2 flex flex-col gap-1">
-          {navItems.map(({ href, label, icon: Icon }) => {
+        <div className="max-h-[calc(100vh-3.5rem)] overflow-y-auto border-t border-gray-800 bg-gray-950 px-4 py-3 lg:hidden">
+          <p className="px-1 pb-2 text-[10px] font-bold uppercase tracking-[0.16em] text-gray-600">Main</p>
+          <div className="grid grid-cols-2 gap-2">
+            {primaryNavItems.map(({ href, label, icon: Icon }) => {
             const showPending = href === '/dashboard' && pendingCount > 0;
             return (
               <Link
                 key={href}
                 href={href}
                 onClick={() => setMenuOpen(false)}
-                className={`flex items-center justify-between px-3 py-2 rounded-lg text-sm transition-colors ${
+                className={`flex items-center justify-between rounded-lg px-3 py-2 text-sm transition-colors ${
                   pathname.startsWith(href)
                     ? 'bg-emerald-900/50 text-emerald-400'
                     : 'text-gray-400 hover:text-white hover:bg-gray-800'
@@ -202,19 +266,33 @@ export default function Navbar({
                   <Icon size={16} />
                   {label}
                 </span>
-                {showPending && (
-                  <span className="inline-flex items-center gap-1 text-[11px] text-amber-400">
-                    <Hourglass size={11} />
-                    {pendingCount} pending
-                  </span>
-                )}
+                {showPending && <span className="h-2 w-2 rounded-full bg-red-500" />}
               </Link>
             );
           })}
+          </div>
+          <div className="mt-3 border-t border-gray-800 pt-3">
+            <p className="px-1 pb-2 text-[10px] font-bold uppercase tracking-[0.16em] text-gray-600">More</p>
+            <div className="grid grid-cols-2 gap-2">
+              {secondaryNavItems.map(({ href, label, icon: Icon }) => (
+                <Link
+                  key={href}
+                  href={href}
+                  onClick={() => setMenuOpen(false)}
+                  className={`flex items-center gap-2 rounded-lg px-3 py-2 text-sm transition-colors ${
+                    pathname.startsWith(href)
+                      ? 'bg-emerald-900/50 text-emerald-400'
+                      : 'text-gray-400 hover:bg-gray-800 hover:text-white'
+                  }`}
+                >
+                  <Icon size={16} />
+                  {label}
+                </Link>
+              ))}
           <Link
             href="/notifications"
             onClick={() => setMenuOpen(false)}
-            className={`flex items-center justify-between px-3 py-2 rounded-lg text-sm transition-colors ${
+                className={`flex items-center justify-between gap-2 rounded-lg px-3 py-2 text-sm transition-colors ${
               pathname.startsWith('/notifications')
                 ? 'bg-emerald-900/50 text-emerald-400'
                 : 'text-gray-400 hover:text-white hover:bg-gray-800'
@@ -232,9 +310,9 @@ export default function Navbar({
           </Link>
           {isAdmin && (
             <Link
-              href="/admin/matches"
+              href="/admin"
               onClick={() => setMenuOpen(false)}
-              className={`flex items-center justify-between px-3 py-2 rounded-lg text-sm transition-colors ${
+                  className={`flex items-center justify-between gap-2 rounded-lg px-3 py-2 text-sm transition-colors ${
                 pathname.startsWith('/admin')
                   ? 'bg-amber-900/40 text-amber-300'
                   : 'text-amber-400/80 hover:text-amber-300 hover:bg-amber-900/20'
@@ -242,7 +320,7 @@ export default function Navbar({
             >
               <span className="flex items-center gap-2">
                 <ShieldCheck size={16} />
-                Admin queue
+                Admin
               </span>
               {adminQueueCount > 0 && (
                 <span className="inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full bg-red-500 text-white text-[10px] font-bold">
@@ -252,19 +330,14 @@ export default function Navbar({
             </Link>
           )}
           <button
-            onClick={() => { setMenuOpen(false); shareApp(); }}
-            className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-emerald-400 hover:text-emerald-300 hover:bg-emerald-900/30 transition-colors"
-          >
-            <Share2 size={16} />
-            Share GullySports
-          </button>
-          <button
             onClick={signOut}
-            className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-gray-400 hover:text-red-400 hover:bg-gray-800 transition-colors"
+                className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm text-gray-400 transition-colors hover:bg-gray-800 hover:text-red-400"
           >
             <LogOut size={16} />
             Sign Out
           </button>
+            </div>
+          </div>
         </div>
       )}
     </nav>

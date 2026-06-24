@@ -1,36 +1,76 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# GullySports
+
+GullySports is a mobile-first scoring and player-profile app for gully cricket,
+football, badminton, table tennis, foosball, and pickleball.
 
 ## Getting Started
 
-First, run the development server:
+Use Node.js 20 or newer, then run the development server:
 
 ```bash
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open [http://localhost:3000](http://localhost:3000) with your browser.
+The local `dev` script includes the machine CA/TLS workaround needed for
+Supabase calls on this network. Production `build` and `start` do not disable
+TLS verification.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Admin Panel
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+Admin endpoint:
 
-## Learn More
+- Local: [http://localhost:3000/admin](http://localhost:3000/admin)
+- Route: `/admin`
+- Access: authenticated users with `profiles.is_admin = true`
 
-To learn more about Next.js, take a look at the following resources:
+Admin routes:
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+- `/admin` - operational overview with user, activity, match, event, pickup, queue, recent audit, and recent match metrics.
+- `/admin/users` - latest active users with phone, last login, last seen, matches played/created, no-shows, and admin badge.
+- `/admin/matches` - admin match queue for force-pushed and stuck-disputed matches, plus recent matches.
+- `/admin/audit` - latest audit events with actor, entity, metadata, and timestamp.
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+Recent admin changes:
 
-## Deploy on Vercel
+- Added shared admin shell/navigation and server-side `requireAdmin()` protection.
+- Added overview, users, matches, and audit admin pages.
+- Updated the main navbar admin link to point to `/admin` while keeping queue badges.
+- Added approve/reject/admin-delete actions from the admin match queue.
+- Added audit tracking for login success, match creation, participant confirmation/dispute, force-push, admin approve/reject, and admin delete.
+- Added `profiles.last_seen_at`, `profiles.last_login_at`, `user_sessions`, and `audit_events` via `supabase/migrations/040_admin_dashboard_audit.sql`.
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+## School Sports
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+School sports is an internal workspace for a single school to run sports-day
+events without touching the existing GullySports match leaderboard or caliber
+board.
+
+Routes:
+
+- `/school` - school dashboard, student list, student entry, and meet list.
+- `/school/setup` - one-time school and house setup.
+- `/school/meets/new` - create a school meet with starter athletics events.
+- `/school/meets/[id]` - meet overview, event list, medal count, and house points.
+- `/school/meets/[id]/events/[eventId]` - register students and enter results.
+
+Data model:
+
+- Uses separate `school_*` tables.
+- `school_students.profile_id` can optionally link a student to an existing
+  GullySports profile.
+- School results do not update `matches`, `player_match_stats`, global
+  leaderboard, or caliber.
+
+## Supabase
+
+Apply pending migrations before testing admin dashboards that read audit/session
+data:
+
+```bash
+supabase db push
+```
+
+The school sports feature requires `supabase/migrations/041_school_sports.sql`,
+`042_fix_school_select_rls.sql`, `043_school_classes.sql`, and
+`044_school_member_role_rls.sql`.

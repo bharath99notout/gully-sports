@@ -12,6 +12,7 @@ import {
 } from '@/lib/phoneAuth';
 import Link from 'next/link';
 import Button from '@/components/ui/Button';
+import { recordLoginSuccess } from '@/app/actions/adminTracking';
 
 type Step = 'phone' | 'otp_phone' | 'otp_email';
 
@@ -28,8 +29,10 @@ async function getDestination(supabase: ReturnType<typeof createClient>) {
 
 function LoginForm() {
   const searchParams = useSearchParams();
+  const phoneParam = searchParams.get('phone');
+  const deletedParam = searchParams.get('deleted');
   const [step, setStep] = useState<Step>('phone');
-  const [phone, setPhone] = useState('');
+  const [phone, setPhone] = useState(() => phoneParam && /^\d{10}$/.test(phoneParam) ? phoneParam : '');
   const [otp, setOtp] = useState('');
   const [emailHint, setEmailHint] = useState('');
   const [emailFull, setEmailFull] = useState('');
@@ -40,17 +43,13 @@ function LoginForm() {
   // and send the user to the signup name screen to pick a fresh display
   // name.
   const [accountDeleted, setAccountDeleted] = useState(false);
-  const [deletedNotice, setDeletedNotice] = useState('');
+  const [deletedNotice] = useState(() =>
+    deletedParam === '1'
+      ? 'Your account was deleted. Sign in again with the same number to restore it.'
+      : '',
+  );
   const otpFormRef = useRef<HTMLFormElement>(null);
   const prevOtpLenRef = useRef(0);
-
-  useEffect(() => {
-    const p = searchParams.get('phone');
-    if (p && /^\d{10}$/.test(p)) setPhone(p);
-    if (searchParams.get('deleted') === '1') {
-      setDeletedNotice('Your account was deleted. Sign in again with the same number to restore it.');
-    }
-  }, [searchParams]);
 
   async function handlePhone(e: React.FormEvent) {
     e.preventDefault();
@@ -69,7 +68,14 @@ function LoginForm() {
         email_otp_enabled?: boolean;
         email_hint?: string;
         account_deleted?: boolean;
+        error?: string;
       };
+
+      if (!res.ok) {
+        setError(body.error || 'Could not check this account. Try again.');
+        setLoading(false);
+        return;
+      }
 
       if (!body.exists) {
         setError('No account with this number yet. Create one first.');
@@ -177,6 +183,7 @@ function LoginForm() {
     if (user?.id) {
       await supabase.from('profiles').update({ phone: phone10 }).eq('id', user.id);
     }
+    await recordLoginSuccess(accountDeleted ? 'restored' : 'last4').catch(() => undefined);
 
     if (accountDeleted) {
       // Restore clears deleted_at and resets the name back to a placeholder
@@ -214,6 +221,7 @@ function LoginForm() {
       setLoading(false);
       return;
     }
+    await recordLoginSuccess('email').catch(() => undefined);
     window.location.href = await getDestination(supabase);
   }
 

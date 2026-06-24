@@ -9,6 +9,7 @@ import Card from '@/components/ui/Card';
 import { SportType, Team } from '@/types';
 import { X } from 'lucide-react';
 import { recomputeEventCost } from '@/app/actions/events';
+import { recordMatchCreated } from '@/app/actions/adminTracking';
 import SportIcon from '@/components/SportIcon';
 import PlayerSearchAndAdd, { type PlayerAddResult } from '@/components/PlayerSearchAndAdd';
 import { SPORTS_LIST } from '@/lib/sports';
@@ -238,6 +239,7 @@ function NewMatchForm() {
       await recomputeEventCost(eventIdParam);
     }
 
+    await recordMatchCreated(match.id).catch(() => undefined);
     router.push(eventIdParam ? `/events/${eventIdParam}` : `/matches/${match.id}`);
   }
 

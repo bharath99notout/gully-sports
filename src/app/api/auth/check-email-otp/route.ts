@@ -26,11 +26,21 @@ export async function POST(req: Request) {
   let admin;
   try {
     admin = createAdminClient();
-  } catch {
-    return NextResponse.json({ exists: false, email_otp_enabled: false });
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : 'Server auth lookup is not configured';
+    return NextResponse.json({ error: msg }, { status: 500 });
   }
 
-  const userId = await findAuthUserIdByPhone10(admin, phone10);
+  let userId: string | null;
+  try {
+    userId = await findAuthUserIdByPhone10(admin, phone10);
+  } catch (e) {
+    const raw = e instanceof Error ? e.message : '';
+    const msg = raw.toLowerCase().includes('fetch failed')
+      ? 'Could not reach auth service. Try again.'
+      : raw || 'Could not check account';
+    return NextResponse.json({ error: msg }, { status: 500 });
+  }
   if (!userId) {
     return NextResponse.json({ exists: false, email_otp_enabled: false });
   }

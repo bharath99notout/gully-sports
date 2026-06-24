@@ -1,9 +1,11 @@
 import { createServerClient } from '@supabase/ssr';
+import type { User } from '@supabase/supabase-js';
 import { NextResponse, type NextRequest } from 'next/server';
 
 export async function middleware(request: NextRequest) {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+  const { pathname } = request.nextUrl;
 
   // Skip auth middleware if Supabase isn't configured yet
   if (!supabaseUrl || supabaseUrl === 'your_supabase_project_url') {
@@ -16,26 +18,6 @@ export async function middleware(request: NextRequest) {
     return NextResponse.next({ request });
   }
 
-  let supabaseResponse = NextResponse.next({ request });
-
-  const supabase = createServerClient(supabaseUrl, supabaseKey!, {
-    cookies: {
-      getAll() {
-        return request.cookies.getAll();
-      },
-      setAll(cookiesToSet) {
-        cookiesToSet.forEach(({ name, value }) => request.cookies.set(name, value));
-        supabaseResponse = NextResponse.next({ request });
-        cookiesToSet.forEach(({ name, value, options }) =>
-          supabaseResponse.cookies.set(name, value, options)
-        );
-      },
-    },
-  });
-
-  const { data: { user } } = await supabase.auth.getUser();
-
-  const { pathname } = request.nextUrl;
   const isAuthPage = pathname.startsWith('/auth');
   // Public assets that must be reachable without auth — required by:
   //   - browsers / Android (PWA install)
@@ -57,6 +39,43 @@ export async function middleware(request: NextRequest) {
   const isPublicPage = pathname === '/'
     || pathname.startsWith('/p/') // /p/[id] → public player profile
     || isPwaAsset;
+
+  // Login/signup pages do not need a remote auth validation when there is no
+  // Supabase session cookie. This keeps login usable on local networks where
+  // Edge-runtime fetch cannot validate the remote session certificate.
+  const hasAuthCookie = request.cookies
+    .getAll()
+    .some(cookie => cookie.name.startsWith('sb-') && cookie.name.includes('auth-token'));
+  if (isAuthPage && !hasAuthCookie) {
+    return NextResponse.next({ request });
+  }
+
+  let supabaseResponse = NextResponse.next({ request });
+
+  const supabase = createServerClient(supabaseUrl, supabaseKey!, {
+    cookies: {
+      getAll() {
+        return request.cookies.getAll();
+      },
+      setAll(cookiesToSet) {
+        cookiesToSet.forEach(({ name, value }) => request.cookies.set(name, value));
+        supabaseResponse = NextResponse.next({ request });
+        cookiesToSet.forEach(({ name, value, options }) =>
+          supabaseResponse.cookies.set(name, value, options)
+        );
+      },
+    },
+  });
+
+  let user: User | null = null;
+  try {
+    const result = await supabase.auth.getUser();
+    user = result.data.user;
+  } catch {
+    if (isAuthPage || isPublicPage) {
+      return NextResponse.next({ request });
+    }
+  }
 
   if (!user && !isAuthPage && !isPublicPage) {
     return NextResponse.redirect(new URL('/auth/login', request.url));

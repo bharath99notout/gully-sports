@@ -3,6 +3,7 @@
 import { revalidatePath } from 'next/cache';
 import { getServerAuth } from '@/lib/supabase/server';
 import { CACHE_TAG_LEADERBOARD, revalidateCacheTag } from '@/lib/cache/tags';
+import { writeAuditEvent } from '@/features/admin/audit';
 
 /**
  * Server actions for the match-trust workflow (migration 013).
@@ -56,6 +57,13 @@ export async function confirmMatch(matchId: string): Promise<ActionResult> {
 
   if (upsertErr) return { ok: false, error: upsertErr.message };
 
+  await writeAuditEvent(supabase, {
+    actorUserId: user.id,
+    eventType: 'match_confirmed',
+    entityType: 'match',
+    entityId: matchId,
+  });
+
   await supabase
     .from('user_notifications')
     .update({ read_at: new Date().toISOString() })
@@ -87,6 +95,14 @@ export async function disputeMatch(matchId: string, reason: string): Promise<Act
     }, { onConflict: 'match_id,player_id' });
 
   if (upsertErr) return { ok: false, error: upsertErr.message };
+
+  await writeAuditEvent(supabase, {
+    actorUserId: user.id,
+    eventType: 'match_disputed',
+    entityType: 'match',
+    entityId: matchId,
+    metadata: { reason: reason || null },
+  });
 
   await supabase
     .from('user_notifications')
@@ -129,6 +145,13 @@ export async function forcePushMatch(matchId: string): Promise<ActionResult> {
     .eq('id', matchId);
   if (updErr) return { ok: false, error: updErr.message };
 
+  await writeAuditEvent(supabase, {
+    actorUserId: user.id,
+    eventType: 'match_force_pushed',
+    entityType: 'match',
+    entityId: matchId,
+  });
+
   revalidatePath(`/matches/${matchId}`);
   revalidatePath('/admin/matches');
   revalidatePath('/leaderboard');
@@ -152,6 +175,14 @@ export async function approveMatch(matchId: string, notes?: string): Promise<Act
   ]);
   if (stateErr) return { ok: false, error: stateErr.message };
   if (logErr) return { ok: false, error: logErr.message };
+
+  await writeAuditEvent(supabase, {
+    actorUserId: user.id,
+    eventType: 'match_admin_approved',
+    entityType: 'match',
+    entityId: matchId,
+    metadata: { notes: notes ?? null },
+  });
 
   // Resolve any still-pending participant rows so the audit looks clean.
   await supabase
@@ -182,6 +213,14 @@ export async function rejectMatch(matchId: string, notes?: string): Promise<Acti
   if (stateErr) return { ok: false, error: stateErr.message };
   if (logErr) return { ok: false, error: logErr.message };
 
+  await writeAuditEvent(supabase, {
+    actorUserId: user.id,
+    eventType: 'match_admin_rejected',
+    entityType: 'match',
+    entityId: matchId,
+    metadata: { notes: notes ?? null },
+  });
+
   revalidatePath('/admin/matches');
   revalidatePath(`/matches/${matchId}`);
   // Stat pages need to drop this match from aggregates.
@@ -205,6 +244,13 @@ export async function deleteMatchAsAdmin(matchId: string): Promise<ActionResult>
 
   const { error: delErr } = await supabase.from('matches').delete().eq('id', matchId);
   if (delErr) return { ok: false, error: delErr.message };
+
+  await writeAuditEvent(supabase, {
+    actorUserId: user.id,
+    eventType: 'match_admin_deleted',
+    entityType: 'match',
+    entityId: matchId,
+  });
 
   revalidatePath('/matches');
   revalidatePath('/admin/matches');

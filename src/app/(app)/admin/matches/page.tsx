@@ -6,6 +6,15 @@ import ConfirmationBadge from '@/components/ConfirmationBadge';
 import DeleteSuccessBanner from '@/components/DeleteSuccessBanner';
 import AdminMatchActions from './AdminMatchActions';
 import type { ConfirmationState } from '@/lib/matchConfirmation';
+import { formatAdminTime } from '@/features/admin/format';
+import { getAdminRecentMatches } from '@/features/admin/server';
+
+type ParticipantRow = {
+  match_id: string;
+  player_id: string;
+  team_name: string;
+  profiles: { name: string } | null;
+};
 
 /**
  * Admin queue for trust review.
@@ -41,7 +50,7 @@ export default async function AdminMatchQueuePage({
     .order('played_at', { ascending: false });
 
   // Bucket 2: stuck disputed (>24h since auto_confirm_at lapsed)
-  const dayAgo = new Date(Date.now() - 24 * 3600 * 1000).toISOString();
+  const dayAgo = new Date(new Date().getTime() - 24 * 3600 * 1000).toISOString();
   const { data: stuckDisputed } = await supabase
     .from('matches')
     .select('id, sport, status, team_a_name, team_b_name, played_at, scored_by, created_by, confirmation_state')
@@ -49,6 +58,7 @@ export default async function AdminMatchQueuePage({
     .lt('played_at', dayAgo)
     .order('played_at', { ascending: false });
 
+  const recentMatches = await getAdminRecentMatches(supabase, 50);
   const allRows = [...(forcePushed ?? []), ...(stuckDisputed ?? [])];
   const matchIds = allRows.map(r => r.id);
 
@@ -75,11 +85,9 @@ export default async function AdminMatchQueuePage({
     : { data: [] as Array<{ id: string; name: string }> };
   const nameById = new Map((userProfiles ?? []).map(p => [p.id, p.name]));
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const partsByMatch = new Map<string, Array<{ player_id: string; name: string; team_name: string; status: string; reason: string | null }>>();
   for (const m of matchIds) partsByMatch.set(m, []);
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  for (const p of (participants ?? []) as any[]) {
+  for (const p of (participants ?? []) as ParticipantRow[]) {
     const conf = (confs ?? []).find(c => c.match_id === p.match_id && c.player_id === p.player_id);
     partsByMatch.get(p.match_id)?.push({
       player_id: p.player_id,
@@ -177,6 +185,37 @@ export default async function AdminMatchQueuePage({
           )}
         </>
       )}
+
+      <section>
+        <h2 className="text-xs font-semibold uppercase tracking-wider text-gray-500 mb-2">
+          Recent matches ({recentMatches.length})
+        </h2>
+        <div className="rounded-2xl border border-gray-800 bg-gray-900 overflow-hidden">
+          {recentMatches.length === 0 ? (
+            <p className="p-4 text-sm text-gray-500">No matches found.</p>
+          ) : (
+            <div className="divide-y divide-gray-800">
+              {recentMatches.map(match => (
+                <Link key={match.id} href={`/matches/${match.id}`} className="block px-4 py-3 hover:bg-gray-800/60">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-semibold text-white">
+                        {match.team_a_name} vs {match.team_b_name}
+                      </p>
+                      <p className="mt-0.5 text-xs text-gray-500">
+                        {match.sport} · {match.status} · {match.player_count} players · scorer: {match.scorer_name}
+                      </p>
+                    </div>
+                    <p className="shrink-0 text-right text-xs text-gray-600">
+                      {formatAdminTime(match.created_at)}
+                    </p>
+                  </div>
+                </Link>
+              ))}
+            </div>
+          )}
+        </div>
+      </section>
     </div>
   );
 }
